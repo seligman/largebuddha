@@ -1,0 +1,121 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head><title>Buddhabrot</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<style type="text/css">html,body,#map_canvas{margin:0;padding:0;height:100%;width:100%;}</style>
+<script type="text/javascript" src="http://maps.google.com/maps/api/js"></script>
+<script type="text/javascript"><!--
+
+/*
+    http://closure-compiler.appspot.com/home 
+                                              */
+
+function opts(type, name) {
+    return {
+        getTileUrl:function(coords, zoomLevel) {
+            var boundedCoords=bound(coords, zoomLevel);
+
+            if (!boundedCoords) {
+                return null;
+            }
+
+            return pos(type, zoomLevel, boundedCoords.x, boundedCoords.y);
+        },
+        tileSize:new google.maps.Size(256, 256),
+        maxZoom:10,
+        minZoom:0,
+        radius:1738000,
+        name:name
+    };
+}
+
+function pos(type, level, x, y) {
+    if (x == -1) {
+        return 'border.png'; /* TODO: Get rid of this clause */
+    }
+
+    var val=(((1 << (level * 2)) - 1) & 0x55555555) + x + (y * (1 << level)) + (type * 1398101);
+    var ret=['tiles/', 'a', 'a', '/', 'a', 'a', '/', 'a', 'a', '.png'];
+    var pos=8;
+
+    while(val > 0) {
+        ret[pos--] = String.fromCharCode(val % 13 + 97);
+        val=(val - (val % 13)) / 13;
+        if (ret[pos] != 'a') {
+            pos--;
+        }
+    }
+
+    return ret.join('');
+}
+
+function init() {
+    var latlng=new google.maps.LatLng(0, 0);
+
+    var opt= {
+        center:latlng,
+        zoom:1,
+        streetViewControl:false,
+        backgroundColor:'red', /* TODO: Should be black */
+        mapTypeControlOptions: {
+            mapTypeIds:['n','b','m']
+        }
+    };
+
+    
+    var i=document.createElement('div');
+    i.id='info-control';
+    i.style.fontSize='11px';
+    i.style.fontFamily='Arial,sans-serif';
+    i.style.margin='0px';
+    i.style.whitespace='nowrap';
+    i.style.backgroundColor='white';
+    i.style.borderStyle='solid';
+    i.style.borderWidth='1px 10px 1px 10px';
+    i.style.borderColor='white';
+    i.style.opacity='0.7';
+    i.index=0;
+    i.innerHTML='<a style="color:black" href="about.html" target="_blank">About these images...</a>';
+
+    var m=new google.maps.Map(document.getElementById('map_canvas'), opt);
+    m.controls[google.maps.ControlPosition.BOTTOM_RIGHT].push(i);
+
+    add(m.mapTypes,'n',0,'Buddhabrot');
+    add(m.mapTypes,'b',2,'Normal');
+    add(m.mapTypes,'m',1,'Mandelbrot');
+
+    m.setMapTypeId('n');
+}
+
+function add(mapTypes, id, type, name) {
+    mapTypes.set(id, new google.maps.ImageMapType(opts(type, name)));
+}
+
+function bound(coords, zoomLevel) {
+    var y = coords.y;
+    var x = coords.x;
+    var tilesWide = 1 << zoomLevel;
+
+    /* TODO: Get rid of this next if check */
+    if ((x == -1 && y >= -1 && y <= tilesWide) ||
+        (x == tilesWide && y >= -1 && y <= tilesWide) ||
+        (y == -1 && x >= -1 && x <= tilesWide) ||
+        (y == tilesWide && x >= -1 && x <= tilesWide)) {
+
+        return ({
+            x:-1,
+            y:-1
+        });
+    }
+
+    if (y < 0 || y >= tilesWide || x < 0 || x >= tilesWide) {
+        return null;
+    }
+
+    return ({
+        x: x,
+        y: y
+    });
+}
+--></script></head><body onload="init()"><div id="map_canvas"></div></body></html>

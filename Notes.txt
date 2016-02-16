@@ -1,0 +1,143 @@
+Building the large scale Buddhabrot:
+
+-----------------------------------------------------------------------
+Step #1: Threads and Pixel Threads
+-----------------------------------------------------------------------
+
+Use the Threads application to create several different chunks.
+
+By default, each chunk should be 8192 x 8192 in size. The rest of the
+applications assume that to different levels.
+
+Pixel Threads is a sub project in threads. It creates the native
+helper that does most of the work, it's called by Threads. The 
+PixelThreads DLL is prebuilt in the Threads project. If PixelThreads
+is updated, then the prebuilt DLL needs to be updated.
+
+Threads uses some default settings. When using default settings, it 
+creates a Settings.txt file with the defaults. These settings can be 
+modified to change the window of the chunk, and control other settings.
+
+Note on value in Settings:  They're not integers. Rather, equations 
+are allowed, meaning both of these lines are the same:
+
+    ViewWidth = 8192
+     and
+    ViewWidth = 1024 * 8
+
+The settings themselves:
+
+    # The size of the final image, this will normally be the size of 
+    # the final image, the sum of all the view ports
+    Width = 8192
+    Height = 8192
+    # The offset of the current viewport into the image
+    ViewOffX = 0
+    ViewOffY = 0
+    # The size of the current viewport. As mentioned, the downstream 
+    # tools assume this size to some extent.
+    ViewWidth = 8192
+    ViewHeight = 8192
+    # The display scale. Should be some value so that ViewWidth/Scale 
+    # is less than the display device, though note:  The UI
+    # display is largely broken
+    Scale = 8
+    # The number of iterations
+    Iters = 500000
+    # The number of times to alias each pixel to prevent some banding 
+    # artifacts. Should be a perfect square.
+    Alias = 25
+    # The number of worker threads
+    Threads = 6
+    # Save angle data for coloring? Should be True for the Buddhabrot 
+    # run, and ALSO True Mandelbrot run to save RGB data
+    SaveAngleData = True
+    # The calculation mode. 1 is Buddhabrot, and 4 is Mandelbrot, these
+    # are the only supported options.  The TriBuddhabrot uses 
+    # the same data from the Buddhabrot
+    Mode = 1
+
+Note: Each Buddhabrot tile requires 1610612744 bytes, and each 
+Mandelbrot tile takes 2147483656. All told, you need about 3.5gb of 
+storage for each tile, even before all of the PNG and related data 
+files are created. Prepare enough space.
+
+Note: The rest of these steps assume both a Buddhabrot and a Mandelbrot 
+run was done. They also assume the directories are named like {x}x{y} 
+for each tile, where x and y are 0 based numbers, with no padding.
+
+Note: You can use the ShowProgress program to get a visual 
+representation of how far along a Thread runner is. It just shows the 
+percentage complete on the Mandelbrot set.
+
+-----------------------------------------------------------------------
+Step #2: Create worker batch file
+-----------------------------------------------------------------------
+
+Modify TileCount and DrawBuddhabrot in Program.cs to match the desired 
+draw size. Run CreateWorker in the target directory with 
+MandelThreads.exe and PixelHelper.dll.
+
+This creates RunThreads.cmd batch file and subdirectories for each 
+tile to generate.
+
+Running RunThreads.cmd will create each tile in turn.
+
+Placing a text file called Abort.txt in the directory RunThreads.cmd is
+in will cause the batch file to abort after the current tile ends.
+
+-----------------------------------------------------------------------
+Step #2: Visualize Array
+-----------------------------------------------------------------------
+
+Visualize Array is the tool that turns the data dumps from Threads 
+into individual PNG files.
+
+Here are the settings in Settings.txt:
+
+    # Various test values, used in test mode only
+    Test.Run = False
+    Test.Width = 512
+    Test.Height = 512
+    Test.Source = C:\Path\To\File
+    # Used to split one large data file into
+    # smaller data files
+    Split.Run = False
+    Split.Source = C:\Path\To\Split\Source.dat
+    Split.Dest = C:\Path\To\Split\Out
+    Split.Offset.X = 0
+    Split.Offset.Y = 0
+    # The main mode, creates the individual tiles for the map view
+    # The number of large tiles from Threads per each side
+    Main.Tiles.PerSide = 1
+    # The number of levels expected to create, should equal
+    # log(perside * 128) / log(2)
+    Main.Tiles.Levels = 1
+    # Limit to use for drawing tiles
+    Main.Tiles.LevelLimit = True
+    # Draw the tiles for the Buddhabrot
+    Main.Action.DrawBuddha = True
+    # Draw the tiles for the TriBuddhabrot (using the Buddhabrot source)
+    Main.Action.DrawTriBuddha = True
+    # Draw the tiles for the Mandelbrot
+    Main.Action.DrawMandel = True
+    # Only draw the large preview image
+    Main.Action.LargeImageOnly = False
+    # Draw the final full size tiles
+    Main.Action.DrawFullSizeTiles = False
+    # Paths for the source files and dest to output
+    Main.SourceBuddhaDir = C:\Path\To\Buddha
+    Main.SourceMandelDir = C:\Path\To\Mandel
+    Main.DestDir = C:\Path\To\Out
+    # Use Gamma correct to create a better scaled down
+    # image. Much slower, but it looks much better.
+    Main.Shrink.UseGamma = True
+    # Average a group of pixels to smooth the final image
+    # Using this set to False is only useful
+    # for a rough preview mode
+    Main.Shrink.AveragePixel = True
+    # Just draw fake tiles.  Only useful for debugging the
+    # web page
+    Main.Action.FakeTiles = False
+
+-----------------------------------------------------------------------

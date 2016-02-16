@@ -1,0 +1,29 @@
+<script>
+function tilePos(level, x, y)
+{
+    var ret = (((1 << (level * 2)) - 1) & 0x55555555) + x + (y * (1 << level));
+    ret = (100000 + ret + '').substr(1);
+    return ret.substr(0,2) + '/' + ret.substr(2,2) + '/' + ret.substr(4);
+}
+
+function dumpLevel(level, size)
+{
+    for (var y = 0; y < size; y ++)
+    {
+        for (var x = 0; x < size; x ++)
+        {
+            document.write(level + ' - ' + x + ' - ' + y + ' - ' + tilePos(level, x, y) + '<br>');
+        }
+    }
+}
+
+function test()
+{
+    for (var i = 0; i < 9; i ++)
+    {
+        dumpLevel(i, Math.pow(2, i));
+    }
+}
+
+test();
+</script>

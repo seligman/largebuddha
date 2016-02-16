@@ -2,7 +2,7 @@
 
 ![The Buddhabrot](buddha.png)
 
-This is the worker to create the large-scale buddhabrot.  The final result of these programs are [seen here](nebula.scottandmichelle.net/nebula/index.html).  You can view lots of more information about the Buddhabrot on [Melinda Green's website](http://superliminal.com/fractals/) or on [Wikipedia](https://en.wikipedia.org/wiki/Buddhabrot).
+This is the worker to create the large-scale buddhabrot.  The final result of these programs are [seen here](http://nebula.scottandmichelle.net/nebula/index.html).  You can view lots of more information about the Buddhabrot on [Melinda Green's website](http://superliminal.com/fractals/) or on [Wikipedia](https://en.wikipedia.org/wiki/Buddhabrot).
 
 There are three main programs.  See "Notes.txt" for more details on each.
 

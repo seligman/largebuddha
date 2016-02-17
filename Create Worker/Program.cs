@@ -99,9 +99,13 @@ namespace CreateWorker
             set.AppendLine("ViewHeight = " + Settings.Worker_PixelsPerTile);
             set.AppendLine("Scale = 8");
             set.AppendLine("Iters = " + Settings.Worker_Iters);
+            set.AppendLine("Iters2 = " + Settings.Worker_Iters2);
+            set.AppendLine("Iters3 = " + Settings.Worker_Iters3);
             set.AppendLine("Alias = " + Settings.Worker_Alias);
             set.AppendLine("Threads = " + Settings.Worker_Threads);
-            set.AppendLine("SaveAngleData = True");
+            set.AppendLine("SaveAngleData = " + Settings.Worker_SaveAngleData);
+            set.AppendLine("SaveTriLimits = " + Settings.Worker_SaveTriLimits);
+
             if (Settings.Worker_DrawBuddhabrot)
             {
                 set.AppendLine("Mode = 1");

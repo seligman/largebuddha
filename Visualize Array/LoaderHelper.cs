@@ -20,6 +20,8 @@ namespace VisualizeArray
         double[,] m_ims = null;
         double[,] m_other = null;
         UInt64[,] m_height = null;
+        UInt64[,] m_height2 = null;
+        UInt64[,] m_height3 = null;
 
         public LoaderHelper()
         {
@@ -27,7 +29,7 @@ namespace VisualizeArray
             m_thread.Start();
         }
 
-        public ComplexData GetData(ref int x, ref int y, ref double[,] res, ref double[,] ims, ref double[,] other, ref UInt64[,] height)
+        public ComplexData GetData(ref int x, ref int y, ref double[,] res, ref double[,] ims, ref double[,] other, ref UInt64[,] height, ref UInt64[,] height2, ref UInt64[,] height3)
         {
             m_hasOne.WaitOne();
             x = m_tileX;
@@ -36,6 +38,8 @@ namespace VisualizeArray
             ims = m_ims;
             other = m_other;
             height = m_height;
+            height2 = m_height2;
+            height3 = m_height3;
             ComplexData ret = m_data;
             m_gotOne.Set();
 
@@ -52,6 +56,8 @@ namespace VisualizeArray
             m_ims = null;
             m_other = null;
             m_height = null;
+            m_height2 = null;
+            m_height3 = null;
 
             return ret;
         }
@@ -64,8 +70,10 @@ namespace VisualizeArray
             double[,] ims = null;
             double[,] other = null;
             UInt64[,] height = null;
+            UInt64[,] height2 = null;
+            UInt64[,] height3 = null;
 
-            return GetData(ref x, ref y, ref res, ref ims, ref other, ref height);
+            return GetData(ref x, ref y, ref res, ref ims, ref other, ref height, ref height2, ref height3);
         }
 
         void Worker()
@@ -80,11 +88,11 @@ namespace VisualizeArray
                     {
                         MyConsole.WriteLine("Loading " + tileX + " x " + tileY);
 
-                        Helpers.LoadSave(file, 8192, 8192, ref m_height, ref m_res, ref m_ims, ref m_other);
+                        Helpers.LoadSave(file, 8192, 8192, ref m_height, ref m_height2, ref m_height3, ref m_res, ref m_ims, ref m_other);
                         ComplexData data = null;
                         if (m_height != null)
                         {
-                            data = new ComplexData(m_res, m_ims, m_other, m_height);
+                            data = new ComplexData(m_res, m_ims, m_other, m_height, m_height2, m_height3);
                         }
 
                         if (data.Loaded)

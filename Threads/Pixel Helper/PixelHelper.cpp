@@ -309,6 +309,8 @@ void EnginePointToComplex(int itemX, int itemY, MandelState * state, double * pt
 
 int SettingsMode = RenderModesBuddhabrot;
 int SettingsIters = 100;
+int SettingsIters2 = 100;
+int SettingsIters3 = 100;
 int SettingsWidth = 500;
 int SettingsHeight = 500;
 int SettingsViewOffX = 0;
@@ -320,6 +322,8 @@ int SettingsViewHeight = 500;
 extern "C" PIXELHELPER_API void PH_SetSettings(
     int Mode,
     int Iters,
+    int Iters2,
+    int Iters3,
     int Width,
     int Height,
     int ViewOffX,
@@ -329,6 +333,8 @@ extern "C" PIXELHELPER_API void PH_SetSettings(
 {
     SettingsMode = Mode;
     SettingsIters = Iters;
+    SettingsIters2 = Iters2;
+    SettingsIters3 = Iters3;
     SettingsWidth = Width;
     SettingsHeight = Height;
     SettingsViewOffX = ViewOffX;
@@ -362,6 +368,8 @@ extern "C" PIXELHELPER_API void* PH_Alloc(
 struct CommonBuffer
 {
     unsigned long long * m_levelsData;
+    unsigned long long * m_levelsData2;
+    unsigned long long * m_levelsData3;
     double * m_levelsPlotReal;
     double * m_levelsPlotImaginary;
     double * m_levelsPlotOther;
@@ -434,7 +442,8 @@ extern "C" PIXELHELPER_API void PH_CloseAll()
 extern "C" PIXELHELPER_API void * PH_InitCommon(
     bool levelsPlotReal,
     bool levelsPlotImaginary,
-    bool levelsPlotOther)
+    bool levelsPlotOther,
+    bool levelsPlotIter23)
 {
     // We store everything in here, we may have pointers to this data elsewhere
     CommonBuffer * ret = (CommonBuffer*)PH_Alloc((unsigned long long)sizeof(CommonBuffer));
@@ -463,6 +472,13 @@ extern "C" PIXELHELPER_API void * PH_InitCommon(
     if (levelsPlotOther)
     {
         size += sizeof(double) * wh;
+    }
+
+    // If we're tracking levels 2 and 3 height map
+    if (levelsPlotIter23)
+    {
+        size += sizeof(unsigned long long) * wh;
+        size += sizeof(unsigned long long) * wh;
     }
 
     // Allocate the memory
@@ -518,6 +534,18 @@ extern "C" PIXELHELPER_API void * PH_InitCommon(
         ret->m_levelsPlotOther = NULL;
     }
 
+    if (levelsPlotIter23)
+    {
+        ret->m_levelsData2 = (unsigned long long*)lpVoid;
+        lpVoid = (void*)(((unsigned long long)lpVoid) + (sizeof(unsigned long long) * wh));
+        ret->m_levelsData3 = (unsigned long long*)lpVoid;
+        lpVoid = (void*)(((unsigned long long)lpVoid) + (sizeof(unsigned long long) * wh));
+    }
+    else
+    {
+        ret->m_levelsData2 = NULL;
+        ret->m_levelsData3 = NULL;
+    }
 
     // Finall return the mess
     return ret;
@@ -581,9 +609,9 @@ extern "C" PIXELHELPER_API void * PH_InitThread()
 	thread->left -= sizeof(double); \
 	thread->current = (void*)(((unsigned long long)thread->current) + sizeof(double))
 // Give the size (in bytes) of a given number of elements to store, it's 
-//  (int + 2 * double) + (int * (2 * count))
+//  (2 * int + 3 * double) + (int * (2 * count))
 #define TD_SIZE_FOR_ELEMENTS(val) \
-	(sizeof(int) + (sizeof(double) * 3) + (sizeof(int) * (2 * (val))))
+	((2 * sizeof(int)) + (sizeof(double) * 3) + (sizeof(int) * (2 * (val))))
 
 // Get an int from the the current position and move forward
 #define TD_GET_INT(val) \
@@ -605,16 +633,16 @@ extern "C" PIXELHELPER_API void * PH_InitThread()
         { \
             double newCurrentValue = 0; \
             for (;;) \
-                        { \
+                                    { \
                 double currentValue = newCurrentValue; \
                 double newValue = currentValue + value; \
                 LONG64 temp = InterlockedCompareExchange64((LONG64*)loc, CAST_DBL2LONG(newValue), CAST_DBL2LONG(currentValue)); \
                 newCurrentValue = CAST_LONG2DBL(temp); \
                 if (newCurrentValue == currentValue) \
-                                { \
+                                                { \
                     break; \
-                                } \
-                        } \
+                                                } \
+                                    } \
         }
 
 // Dump the work area of the current thread to the main memory area
@@ -631,12 +659,14 @@ void PH_DumpInternal(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk)
             while (thread->left < thread->total)
             {
                 int count;
+                int level;
                 double a;
                 double b;
                 double c;
 
                 // Get the value to apply
                 TD_GET_INT(count);
+                TD_GET_INT(level);
                 TD_GET_DOUBLE(a);
                 TD_GET_DOUBLE(b);
                 TD_GET_DOUBLE(c);
@@ -713,11 +743,13 @@ void PH_DumpInternal(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk)
             while (thread->left < thread->total)
             {
                 int count;
+                int level;
                 double a;
                 double b;
                 double c;
 
                 TD_GET_INT(count);
+                TD_GET_INT(level);
                 TD_GET_DOUBLE(a);
                 TD_GET_DOUBLE(b);
                 TD_GET_DOUBLE(c);
@@ -756,27 +788,93 @@ void PH_DumpInternal(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk)
                                 InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
                                 break;
                             }
-                    }
+                        }
 #endif
-                }
+                    }
 
                     count--;
+                }
             }
         }
-    }
-        else
+        else if (common->m_levelsData2)
         {
-            // And same as the other two if clauses, but only store level data.  This is for a simple B/W 
-            // Mandelbrot render
+            // Just store level data, but store three levels, depending on the levels int
 
             while (thread->left < thread->total)
             {
                 int count;
+                int level;
                 double a;
                 double b;
                 double c;
 
                 TD_GET_INT(count);
+                TD_GET_INT(level);
+                TD_GET_DOUBLE(a);
+                TD_GET_DOUBLE(b);
+                TD_GET_DOUBLE(c);
+
+                while (count > 0)
+                {
+                    int x;
+                    int y;
+
+                    TD_GET_INT(x);
+                    TD_GET_INT(y);
+
+                    if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
+                        y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
+                    {
+                        unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
+
+#ifdef USE_CRIT_SECTION
+                        EnterCrit(x);
+
+                        common->m_levelsData[xy]++;
+
+                        LeaveCrit(x);
+#else
+                        // This is different than the other two if clauses.  No need to
+                        // 'own' a pixel here, we can just increment the value directly
+                        // using InterlockedIncrement since we won't be touching anything
+                        // else
+                        if (level == 3)
+                        {
+                            InterlockedIncrement64((LONGLONG*)&common->m_levelsData[xy]);
+                            InterlockedIncrement64((LONGLONG*)&common->m_levelsData2[xy]);
+                            InterlockedIncrement64((LONGLONG*)&common->m_levelsData3[xy]);
+                        }
+                        else if (level == 2)
+                        {
+                            InterlockedIncrement64((LONGLONG*)&common->m_levelsData[xy]);
+                            InterlockedIncrement64((LONGLONG*)&common->m_levelsData2[xy]);
+                        }
+                        else
+                        {
+                            InterlockedIncrement64((LONGLONG*)&common->m_levelsData[xy]);
+                        }
+#endif
+                    }
+
+                    count--;
+                }
+            }
+        }
+        else
+        {
+            // And same as the other three if clauses, but only store level data.  This is for a simple B/W 
+            // Mandelbrot render
+
+            while (thread->left < thread->total)
+            {
+                int count;
+                int level;
+                double a;
+                double b;
+                double c;
+
+                TD_GET_INT(count);
+                TD_GET_INT(level);
                 TD_GET_DOUBLE(a);
                 TD_GET_DOUBLE(b);
                 TD_GET_DOUBLE(c);
@@ -817,7 +915,7 @@ void PH_DumpInternal(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk)
         // Reset the pointers so we can start adding data again
         thread->left = thread->total;
         thread->current = thread->start;
-}
+    }
 
 #ifndef USE_MEMORY_MAP
     // If we're not using a memory map, only dump to disk when we're told to, memory mapped
@@ -895,6 +993,7 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
         // when 'inside' the mandelbrot set, since they'd just be tossed
         // away anyway
         bool inPeriod = false;
+
         if (mode == RenderModesBuddhabrot ||
             mode == RenderModesStarField ||
             mode == RenderModesMandelbrot)
@@ -933,6 +1032,7 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
             int resetCheck = checkQuantum;
             double checkLastX = -1.79769e+308;
             double checkLastY = -1.79769e+308;
+            bool lookForLoops = (common->m_levelsData2 == NULL);
 
             for (int iter = 0; iter < iters; iter++)
             {
@@ -959,24 +1059,30 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
                     break;
                 }
 
-                // Look for loops (meaning this point won't escape, and would hit the iters limit if
-                // we let it go.
-                if (curX == checkLastX && curY == checkLastY)
+                // Only check for loops if we're not tracking three different iters
+                // This check can cause us to bail early, which leaves a bad
+                // artificat at lower iter levels.
+                if (lookForLoops)
                 {
-                    periodLoop++;
-                    inPeriod = true;
-                    break;
-                }
+                    // Look for loops (meaning this point won't escape, and would hit the iters limit if
+                    // we let it go.
+                    if (curX == checkLastX && curY == checkLastY)
+                    {
+                        periodLoop++;
+                        inPeriod = true;
+                        break;
+                    }
 
-                // Increase the size of the loop we're looking for every now and then
-                resetCheck--;
-                if (resetCheck == 0)
-                {
-                    periodLoop = 0;
-                    checkLastX = curX;
-                    checkLastY = curY;
-                    checkQuantum += checkQuantum;
-                    resetCheck = checkQuantum;
+                    // Increase the size of the loop we're looking for every now and then
+                    resetCheck--;
+                    if (resetCheck == 0)
+                    {
+                        periodLoop = 0;
+                        checkLastX = curX;
+                        checkLastY = curY;
+                        checkQuantum += checkQuantum;
+                        resetCheck = checkQuantum;
+                    }
                 }
             }
         }
@@ -1130,6 +1236,8 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
 
                 // Just one point to update
                 TD_PUSH_INT(1);
+                // Level is ignored
+                TD_PUSH_INT(0);
 
                 // Store the RGB quad
                 TD_PUSH_DOUBLE(r);
@@ -1152,6 +1260,20 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
 
                 // Save the size of the point trail
                 TD_PUSH_INT(pointTrailPtC);
+
+                // Push the right level
+                if (bailAt < SettingsIters3)
+                {
+                    TD_PUSH_INT(3);
+                }
+                else if (bailAt < SettingsIters2)
+                {
+                    TD_PUSH_INT(2);
+                }
+                else
+                {
+                    TD_PUSH_INT(1);
+                }
 
                 // Use the RG of the RGB quad to store the final
                 // exit point of the point trail, which is used to color things

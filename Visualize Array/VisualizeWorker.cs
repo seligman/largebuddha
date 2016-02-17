@@ -24,7 +24,7 @@ namespace VisualizeArray
             {
                 int w = Settings.Test_Width;
                 int h = Settings.Test_Height;
-                Helpers.Mode = Helpers.Modes.Buddha;
+                Helpers.Mode = Helpers.Modes.TriBuddha;
                 // FindLimitTriBuddha(Settings.Test_Source, w, h);
                 FindLimit(Settings.Test_Source, w, h);
                 BitBits bit = new BitBits(w, h, true);
@@ -58,7 +58,7 @@ namespace VisualizeArray
                 using (var indent = MyConsole.Indent("TriBuddha"))
                 {
                     Helpers.Mode = Helpers.Modes.TriBuddha;
-                    FindLimitTriBuddha(null, 8192, 8192);
+                    FindLimit(null, 8192, 8192);
                     MainWorkerInternal();
                 }
             }
@@ -608,9 +608,9 @@ namespace VisualizeArray
         }
 
 
-        static void FindLimitTriBuddha(string file, int w, int h)
+        static void FindLimit(string file, int w, int h)
         {
-            string cache = "limits_tri.cache";
+            string cache = "limits.cache";
 
             if (File.Exists(cache) && !Settings.Test_Run)
             {
@@ -620,7 +620,7 @@ namespace VisualizeArray
                 {
                     for (int y = 0; y < 3; y++)
                     {
-                        Helpers.TriLimit[x, y] = UInt64.Parse(lines[i]);
+                        Helpers.Limits[x, y] = double.Parse(lines[i]);
                         i++;
                     }
                 }
@@ -629,152 +629,16 @@ namespace VisualizeArray
             {
                 using (var indent = MyConsole.Indent("Finding limits"))
                 {
+                    Dictionary<long, long>[] counts = new Dictionary<long, long>[3];
+                    long[] totalPixels = new long[3];
                     LoaderHelper helper = null;
+                    int levels = 0;
 
-                    if (file == null)
+                    for (int i = 0; i < 3; i ++)
                     {
-                        helper = new LoaderHelper();
+                        counts[i] = new Dictionary<long, long>();
+                        totalPixels[i] = 0;
                     }
-
-                    Dictionary<UInt64, long> counts = new Dictionary<UInt64, long>();
-                    UInt64 total = 0;
-
-                    while (true)
-                    {
-                        ComplexData data = null;
-
-                        if (helper != null)
-                        {
-                            data = helper.GetData();
-                        }
-                        else
-                        {
-                            if (file != null)
-                            {
-                                data = ComplexData.LoadFile(file, w, h);
-                                file = null;
-                            }
-                        }
-
-                        if (data == null)
-                        {
-                            break;
-                        }
-
-                        for (int x = 0; x < w; x++)
-                        {
-                            for (int y = 0; y < h; y++)
-                            {
-                                var cur = data.Level[x, y];
-                                if (!counts.ContainsKey(cur))
-                                {
-                                    counts.Add(cur, 1);
-                                }
-                                else
-                                {
-                                    counts[cur]++;
-                                }
-                                total++;
-                            }
-                        }
-                    }
-
-                    for (int level = 0; level < 3; level++)
-                    {
-                        MyConsole.WriteLine("Working on level " + (level + 1));
-
-                        UInt64 running = 0;
-                        bool target1Set = false;
-                        bool target2Set = false;
-                        bool target3Set = false;
-                        UInt64 target1 = 0;
-                        UInt64 target2 = 0;
-                        UInt64 target3 = 0;
-
-                        List<UInt64> list = new List<ulong>(counts.Keys);
-                        list.Sort();
-
-                        double limit1 = 0;
-                        double limit2 = 0;
-                        double limit3 = 0;
-
-                        limit1 = 0.5;
-                        limit2 = 0.998;
-                        limit3 = 1.0;
-
-                        foreach (var key in list)
-                        {
-                            running += (UInt64)counts[key];
-                            if (!target1Set)
-                            {
-                                if ((((double)running) / ((double)total)) > limit1)
-                                {
-                                    target1 = key;
-                                    target1Set = true;
-                                }
-                            }
-
-                            if (!target2Set)
-                            {
-                                if ((((double)running) / ((double)total)) > limit2)
-                                {
-                                    target2 = key;
-                                    target2Set = true;
-                                }
-                            }
-
-                            if (!target3Set)
-                            {
-                                if ((((double)running) / ((double)total)) > limit3)
-                                {
-                                    target3 = key;
-                                    target3Set = true;
-                                }
-                            }
-                        }
-
-                        if (!target3Set)
-                        {
-                            target3 = list[list.Count - 1];
-                        }
-
-                        Helpers.TriLimit[level, 0] = target1;
-                        Helpers.TriLimit[level, 1] = target2;
-                        Helpers.TriLimit[level, 2] = target3;
-                    }
-
-                    StringBuilder sb = new StringBuilder();
-                    for (int x = 0; x < 3; x++)
-                    {
-                        for (int y = 0; y < 3; y++)
-                        {
-                            sb.AppendLine(Helpers.TriLimit[x, y].ToString());
-                        }
-                    }
-                    File.WriteAllText(cache, sb.ToString());
-                }
-            }
-        }
-
-        static void FindLimit(string file, int w, int h)
-        {
-            string cache = "limits.cache";
-
-            if (File.Exists(cache) && !Settings.Test_Run)
-            {
-                string[] lines = File.ReadAllLines(cache);
-
-                Helpers.Limit1 = double.Parse(lines[0]);
-                Helpers.Limit2 = double.Parse(lines[1]);
-            }
-            else
-            {
-                using (var indent = MyConsole.Indent("Finding limits"))
-                {
-                    Dictionary<long, long> counts = new Dictionary<long, long>();
-                    List<string> inCache = new List<string>();
-                    long totalPixels = 0;
-                    LoaderHelper helper = null;
 
                     if (file == null)
                     {
@@ -787,6 +651,8 @@ namespace VisualizeArray
                         double[,] ims = null;
                         double[,] other = null;
                         UInt64[,] height = null;
+                        UInt64[,] height2 = null;
+                        UInt64[,] height3 = null;
                         int tileX = 0;
                         int tileY = 0;
 
@@ -794,7 +660,7 @@ namespace VisualizeArray
 
                         if (helper != null)
                         {
-                            data = helper.GetData(ref tileX, ref tileY, ref res, ref ims, ref other, ref height);
+                            data = helper.GetData(ref tileX, ref tileY, ref res, ref ims, ref other, ref height, ref height2, ref height3);
                         }
                         else
                         {
@@ -806,6 +672,8 @@ namespace VisualizeArray
                                 ims = data.Imaginary;
                                 other = data.Other;
                                 height = data.Level;
+                                height2 = data.Level2;
+                                height3 = data.Level3;
 
                                 file = null;
                             }
@@ -816,67 +684,116 @@ namespace VisualizeArray
                             break;
                         }
 
-                        for (int x = 0; x < w; x++)
+                        if (height2 != null)
                         {
-                            for (int y = 0; y < h; y++)
+                            levels = 3;
+                            for (int i = 0; i < 3; i++)
                             {
-                                totalPixels++;
-
-                                Complex cur = new Complex(res[x, y], ims[x, y]);
-
-                                long abs = (long)cur.Abs;
-                                if (counts.ContainsKey(abs))
+                                ulong[,] cur = null;
+                                switch (i)
                                 {
-                                    counts[abs]++;
+                                    case 0:
+                                        cur = height;
+                                        break;
+                                    case 1:
+                                        cur = height2;
+                                        break;
+                                    case 2:
+                                        cur = height3;
+                                        break;
                                 }
-                                else
+
+                                for (int x = 0; x < w; x++)
                                 {
-                                    counts.Add(abs, 1);
+                                    for (int y = 0; y < h; y++)
+                                    {
+                                        totalPixels[i]++;
+
+                                        long abs = (long)cur[x, y];
+                                        if (counts[i].ContainsKey(abs))
+                                        {
+                                            counts[i][abs]++;
+                                        }
+                                        else
+                                        {
+                                            counts[i].Add(abs, 1);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            levels = 1;
+                            for (int x = 0; x < w; x++)
+                            {
+                                for (int y = 0; y < h; y++)
+                                {
+                                    totalPixels[0]++;
+
+                                    Complex cur = new Complex(res[x, y], ims[x, y]);
+
+                                    long abs = (long)cur.Abs;
+                                    if (counts[0].ContainsKey(abs))
+                                    {
+                                        counts[0][abs]++;
+                                    }
+                                    else
+                                    {
+                                        counts[0].Add(abs, 1);
+                                    }
                                 }
                             }
                         }
                     }
 
-                    List<long> keys = new List<long>(counts.Keys);
-                    keys.Sort();
-
-                    long curPixels = 0;
-                    long limit1 = -1;
-                    long limit2 = -1;
-                    foreach (long key in keys)
+                    for (int i = 0; i < levels; i++)
                     {
-                        curPixels += counts[key];
-                        double perc = ((double)curPixels) / ((double)totalPixels);
+                        List<long> keys = new List<long>(counts[i].Keys);
+                        keys.Sort();
 
-                        if (limit1 == -1)
+                        long curPixels = 0;
+                        long limit1 = -1;
+                        long limit2 = -1;
+                        long limit3 = -1;
+                        foreach (long key in keys)
                         {
-                            if (perc >= 0.995)
+                            curPixels += counts[i][key];
+                            double perc = ((double)curPixels) / ((double)totalPixels[i]);
+
+                            if (limit1 == -1)
                             {
-                                limit1 = key;
+                                if (perc >= 0.995)
+                                {
+                                    limit1 = key;
+                                }
                             }
-                        }
 
-                        if (limit2 == -1)
-                        {
-                            if (perc >= 0.9999)
+                            if (limit2 == -1)
                             {
-                                limit2 = key;
+                                if (perc >= 0.9999)
+                                {
+                                    limit2 = key;
+                                }
                             }
+
+                            limit3 = key;
                         }
 
-                        if (limit1 != -1 && limit2 != -1)
-                        {
-                            break;
-                        }
+                        Helpers.Limits[i, 0] = limit1;
+                        Helpers.Limits[i, 1] = limit2;
+                        Helpers.Limits[i, 2] = limit3;
                     }
-
-                    Helpers.Limit1 = limit1;
-                    Helpers.Limit2 = limit2;
 
                     StringBuilder sb = new StringBuilder();
-                    sb.AppendLine(Helpers.Limit1.ToString());
-                    sb.AppendLine(Helpers.Limit2.ToString());
-                    File.WriteAllText("limits.cache", sb.ToString());
+                    for (int x = 0; x < 3; x++)
+                    {
+                        for (int y = 0; y < 3; y++)
+                        {
+                            sb.AppendLine(Helpers.Limits[x, y].ToString());
+                        }
+                    }
+                    File.WriteAllText(cache, sb.ToString());
                 }
             }
         }

@@ -16,7 +16,11 @@ namespace CreateWorker
         public static int Worker_Threads = 6;
         public static int Worker_PixelsPerTile = 8192;
         public static int Worker_Iters = 500000;
+        public static int Worker_Iters2 = 500000;
+        public static int Worker_Iters3 = 500000;
         public static int Worker_Alias = 25;
+        public static bool Worker_SaveAngleData = true;
+        public static bool Worker_SaveTriLimits = false;
 
         public static bool Init()
         {

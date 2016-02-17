@@ -44,6 +44,12 @@ The settings themselves:
     Scale = 8
     # The number of iterations
     Iters = 500000
+    # The number of iterations for a TriColor buddhabrot, must be less
+    # than Iters
+    Iters2 = 50000
+    # The number of iterations for a TriColor buddhabrot, must be less
+    # than Iters2 and less than Iters
+    Iters3 = 5000
     # The number of times to alias each pixel to prevent some banding 
     # artifacts. Should be a perfect square.
     Alias = 25
@@ -52,6 +58,10 @@ The settings themselves:
     # Save angle data for coloring? Should be True for the Buddhabrot 
     # run, and ALSO True Mandelbrot run to save RGB data
     SaveAngleData = True
+    # Save three limits for a traditional buddhabrot coloring. This only
+    # makes sense if SaveAngleData is false, and the three Iters are set
+    # to different values
+    SaveTriLimits = False
     # The calculation mode. 1 is Buddhabrot, and 4 is Mandelbrot, these
     # are the only supported options.  The TriBuddhabrot uses 
     # the same data from the Buddhabrot

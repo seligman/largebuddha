@@ -10,10 +10,10 @@ namespace VisualizeArray
 {
     public static class Helpers
     {
-        public static double Limit1 = double.MinValue;
-        public static double Limit2 = double.MinValue;
-
-        public static UInt64[,] TriLimit = new UInt64[3, 3];
+        public static double[,] Limits = new double[3, 3] { 
+        { double.MinValue, double.MinValue, double.MinValue }, 
+        { double.MinValue, double.MinValue, double.MinValue }, 
+        { double.MinValue, double.MinValue, double.MinValue } };
 
         public static Modes Mode = Modes.Invalid;
 
@@ -286,7 +286,7 @@ namespace VisualizeArray
         }
 
 
-        public unsafe static void LoadSave(string file, int overWidth, int overHeight, ref UInt64[,] height, ref double[,] res, ref double[,] ims, ref double[,] other)
+        public unsafe static void LoadSave(string file, int overWidth, int overHeight, ref UInt64[,] height, ref UInt64[,] height2, ref UInt64[,] height3, ref double[,] res, ref double[,] ims, ref double[,] other)
         {
             int max = 134217728;
             int off = 0;
@@ -346,70 +346,122 @@ namespace VisualizeArray
                 }
             }
 
-            if (avail > 0)
+            if (Helpers.Mode == Modes.TriBuddha)
             {
-                res = new double[imageWidth, imageHeight];
-
-                for (int y = 0; y < imageHeight; y++)
+                if (avail > 0)
                 {
-                    for (int x = 0; x < imageWidth; x++)
-                    {
-                        fixed (byte* numRef = &(buffer[off]))
-                        {
-                            res[x, y] = *(((double*)numRef));
-                        }
+                    height2 = new UInt64[imageWidth, imageHeight];
 
-                        off += 8;
-                        if (off == avail)
+                    for (int y = 0; y < imageHeight; y++)
+                    {
+                        for (int x = 0; x < imageWidth; x++)
                         {
-                            avail = stream.Read(buffer, 0, max);
-                            off = 0;
+                            fixed (byte* numRef = &(buffer[off]))
+                            {
+                                height2[x, y] = *(((UInt64*)numRef));
+                            }
+
+                            off += 8;
+                            if (off == avail)
+                            {
+                                avail = stream.Read(buffer, 0, max);
+                                off = 0;
+                            }
+                        }
+                    }
+                }
+
+                if (avail > 0)
+                {
+                    height3 = new UInt64[imageWidth, imageHeight];
+
+                    for (int y = 0; y < imageHeight; y++)
+                    {
+                        for (int x = 0; x < imageWidth; x++)
+                        {
+                            fixed (byte* numRef = &(buffer[off]))
+                            {
+                                height3[x, y] = *(((UInt64*)numRef));
+                            }
+
+                            off += 8;
+                            if (off == avail)
+                            {
+                                avail = stream.Read(buffer, 0, max);
+                                off = 0;
+                            }
                         }
                     }
                 }
             }
 
-            if (avail > 0)
+            else
             {
-                ims = new double[imageWidth, imageHeight];
-
-                for (int y = 0; y < imageHeight; y++)
+                if (avail > 0)
                 {
-                    for (int x = 0; x < imageWidth; x++)
-                    {
-                        fixed (byte* numRef = &(buffer[off]))
-                        {
-                            ims[x, y] = *(((double*)numRef));
-                        }
+                    res = new double[imageWidth, imageHeight];
 
-                        off += 8;
-                        if (off == avail)
+                    for (int y = 0; y < imageHeight; y++)
+                    {
+                        for (int x = 0; x < imageWidth; x++)
                         {
-                            avail = stream.Read(buffer, 0, max);
-                            off = 0;
+                            fixed (byte* numRef = &(buffer[off]))
+                            {
+                                res[x, y] = *(((double*)numRef));
+                            }
+
+                            off += 8;
+                            if (off == avail)
+                            {
+                                avail = stream.Read(buffer, 0, max);
+                                off = 0;
+                            }
                         }
                     }
                 }
-            }
 
-            if (avail > 0)
-            {
-                other = new double[imageWidth, imageHeight];
-
-                for (int y = 0; y < imageHeight; y++)
+                if (avail > 0)
                 {
-                    for (int x = 0; x < imageWidth; x++)
-                    {
-                        fixed (byte* numRef = &(buffer[off]))
-                        {
-                            other[x, y] = *(((double*)numRef));
-                        }
+                    ims = new double[imageWidth, imageHeight];
 
-                        off += 8;
-                        if (off == avail)
+                    for (int y = 0; y < imageHeight; y++)
+                    {
+                        for (int x = 0; x < imageWidth; x++)
                         {
-                            avail = stream.Read(buffer, 0, max);
-                            off = 0;
+                            fixed (byte* numRef = &(buffer[off]))
+                            {
+                                ims[x, y] = *(((double*)numRef));
+                            }
+
+                            off += 8;
+                            if (off == avail)
+                            {
+                                avail = stream.Read(buffer, 0, max);
+                                off = 0;
+                            }
+                        }
+                    }
+                }
+
+                if (avail > 0)
+                {
+                    other = new double[imageWidth, imageHeight];
+
+                    for (int y = 0; y < imageHeight; y++)
+                    {
+                        for (int x = 0; x < imageWidth; x++)
+                        {
+                            fixed (byte* numRef = &(buffer[off]))
+                            {
+                                other[x, y] = *(((double*)numRef));
+                            }
+
+                            off += 8;
+                            if (off == avail)
+                            {
+                                avail = stream.Read(buffer, 0, max);
+                                off = 0;
+                            }
                         }
                     }
                 }

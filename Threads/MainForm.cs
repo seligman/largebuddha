@@ -140,7 +140,7 @@ namespace MandelThreads
         [DllImport(@"PixelHelper.dll")]
         static extern void PH_CloseAll();
         [DllImport(@"PixelHelper.dll")]
-        static extern IntPtr PH_InitCommon(bool levelsPlotReal, bool levelsPlotImaginary, bool levelsPlotOther);
+        static extern IntPtr PH_InitCommon(bool levelsPlotReal, bool levelsPlotImaginary, bool levelsPlotOther, bool levelsPlotIters23);
         [DllImport(@"PixelHelper.dll")]
         static extern IntPtr PH_InitThread();
         [DllImport(@"PixelHelper.dll")]
@@ -148,7 +148,7 @@ namespace MandelThreads
         [DllImport(@"PixelHelper.dll")]
         static extern void PH_WorkerCalcPixel(ref WorkItem item, ref MandelState state, IntPtr common, IntPtr thread);
         [DllImport(@"PixelHelper.dll")]
-        static extern void PH_SetSettings(int Mode, int Iters, int Width, int Height, int ViewOffX, int ViewOffY, int ViewWidth, int ViewHeight);
+        static extern void PH_SetSettings(int Mode, int Iters, int Iters2, int Iters3, int Width, int Height, int ViewOffX, int ViewOffY, int ViewWidth, int ViewHeight);
 
         void StarterThread()
         {
@@ -160,12 +160,22 @@ namespace MandelThreads
             PH_InitPixelHelper();
             int mode = Utilities.RenderToInt(Settings.Mode);
 
-            PH_SetSettings(mode, Settings.Iters, Settings.Width, Settings.Height, Settings.ViewOffX, Settings.ViewOffY, Settings.ViewWidth, Settings.ViewHeight);
+            PH_SetSettings(mode, 
+                Settings.Iters, 
+                Settings.Iters2, 
+                Settings.Iters3, 
+                Settings.Width, 
+                Settings.Height, 
+                Settings.ViewOffX, 
+                Settings.ViewOffY, 
+                Settings.ViewWidth, 
+                Settings.ViewHeight);
 
             m_levels = new Levels();
             bool needRe = false;
             bool needIm = false;
             bool needOt = false;
+            bool needLevels = false;
 
             if (Settings.SaveAngleData)
             {
@@ -176,8 +186,15 @@ namespace MandelThreads
                     needOt = true;
                 }
             }
+            else
+            {
+                if (Settings.Mode == RenderModes.Buddhabrot || Settings.Mode == RenderModes.AntiBuddhabrot)
+                {
+                    needLevels = true;
+                }
+            }
 
-            m_levels.Common = PH_InitCommon(needRe, needIm, needOt);
+            m_levels.Common = PH_InitCommon(needRe, needIm, needOt, needLevels);
 
             m_levels.Max = 0;
             m_levels.Start = DateTime.Now;

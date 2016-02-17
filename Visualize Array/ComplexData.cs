@@ -12,6 +12,8 @@ namespace VisualizeArray
     public class ComplexData
     {
         public UInt64[,] Level = null;
+        public UInt64[,] Level2 = null;
+        public UInt64[,] Level3 = null;
         public double[,] Real = null;
         public double[,] Imaginary = null;
         public double[,] Other = null;
@@ -54,7 +56,7 @@ namespace VisualizeArray
 
         private void InternalLoadFile(string file, int width, int height)
         {
-            Helpers.LoadSave(file, width, height, ref Level, ref Real, ref Imaginary, ref Other);
+            Helpers.LoadSave(file, width, height, ref Level, ref Level2, ref Level3, ref Real, ref Imaginary, ref Other);
 
             Loaded = true;
 
@@ -77,12 +79,14 @@ namespace VisualizeArray
             AsComplex = new Helper(this);
         }
 
-        public ComplexData(double[,] res, double[,] ims, double[,] other, UInt64[,] height)
+        public ComplexData(double[,] res, double[,] ims, double[,] other, UInt64[,] height, UInt64[,] height2, UInt64[,] height3)
         {
             Real = res;
             Imaginary = ims;
             Other = other;
             Level = height;
+            Level2 = height2;
+            Level3 = height3;
 
             Loaded = true;
 
@@ -95,7 +99,7 @@ namespace VisualizeArray
             {
                 MyConsole.WriteLine("Loading " + x + " x " + y + " (" + level + ")");
                 int size = 8192;
-                Helpers.LoadSave(Helpers.GetName(x, y, level), size, size, ref Level, ref Real, ref Imaginary, ref Other);
+                Helpers.LoadSave(Helpers.GetName(x, y, level), size, size, ref Level, ref Level2, ref Level3, ref Real, ref Imaginary, ref Other);
                 Loaded = true;
             }
         }
@@ -111,7 +115,7 @@ namespace VisualizeArray
                 switch (Helpers.Mode)
                 {
                     case Helpers.Modes.Buddha:
-                        return GetPointBuddha(x, y);
+                        return GetPointBuddha(x, y, 0);
                     case Helpers.Modes.Mandel:
                         return GetPointMandel(x, y);
                     case Helpers.Modes.TriBuddha:
@@ -140,7 +144,7 @@ namespace VisualizeArray
             return new ColorD(r / 255.0, g / 255.0, b / 255.0);
         }
 
-        ColorD GetPointBuddha(int x, int y)
+        ColorD GetPointBuddha(int x, int y, int level)
         {
             Complex plot = AsComplex[x, y];
             double hue = plot.Arg / Math.PI;
@@ -152,20 +156,20 @@ namespace VisualizeArray
             hue *= 360.0;
 
             double abs = plot.Abs;
-            double lum = abs / Helpers.Limit1;
+            double lum = abs / Helpers.Limits[level, 0];
             lum = lum * 0.95 + 0.05;
             lum = Math.Min(lum, 1.0);
 
             double sat = 1.0;
-            if (abs >= Helpers.Limit1)
+            if (abs >= Helpers.Limits[level, 0])
             {
-                if (abs > Helpers.Limit2)
+                if (abs > Helpers.Limits[level, 1])
                 {
                     sat = 0;
                 }
                 else
                 {
-                    sat = 1.0 - ((abs - Helpers.Limit1) / (Helpers.Limit2 - Helpers.Limit1));
+                    sat = 1.0 - ((abs - Helpers.Limits[level, 0]) / (Helpers.Limits[level, 1] - Helpers.Limits[level, 0]));
                 }
             }
 
@@ -200,78 +204,35 @@ namespace VisualizeArray
             return new ColorD(r, g, b);
         }
 
-        double GetTriPoint(UInt64 pt, int level)
+        double GetBrightBuddha(int x, int y, int level)
         {
-            UInt64 val1 = Helpers.TriLimit[level, 0];
-            UInt64 val2 = Helpers.TriLimit[level, 1];
-            UInt64 val3 = Helpers.TriLimit[level, 2];
 
-            double ret = 0;
-
-            if (pt < val1)
-            {
-                ret = 0;
-            }
-            else if (pt > val3)
-            {
-                ret = 0;
-            }
-            else if (pt < val2)
-            {
-                ret = ((double)(pt - val1)) / ((double)(val2 - val1));
-            }
-            else
-            {
-                ret = 1.0 - ((double)(pt - val2)) / ((double)(val3 - val2));
-            }
-
-            bool lower = true;
-            if (ret > 0.5)
-            {
-                lower = false;
-            }
-
-            if (lower)
-            {
-                ret *= 2.0;
-            }
-            else
-            {
-                ret = 1.0 - ((ret - 0.5) * 2.0);
-            }
-
+            UInt64 val = 0;
             switch (level)
             {
                 case 0:
-                    ret = Math.Pow(ret, 0.65);
+                    val = Level[x, y];
                     break;
                 case 1:
-                    ret = Math.Pow(ret, 0.85);
+                    val = Level2[x, y];
                     break;
                 case 2:
-                    ret = Math.Pow(ret, 0.5);
+                    val = Level3[x, y];
                     break;
             }
-
-            if (lower)
-            {
-                ret /= 2.0;
-            }
-            else
-            {
-                ret = ((1.0 - ret) / 2.0) + 0.5;
-            }
-
-            return ret;
+            double bright = val  / Helpers.Limits[level, 1];
+            bright = Math.Min(bright, 1.0);
+            return bright;
         }
+
 
         ColorD GetPointTriBuddha(int x, int y)
         {
             Complex plot = AsComplex[x, y];
 
-            double r = GetTriPoint(Level[x, y], 0);
-            double g = GetTriPoint(Level[x, y], 1);
-            double b = GetTriPoint(Level[x, y], 2);
+            double r = GetBrightBuddha(x, y, 0);
+            double g = GetBrightBuddha(x, y, 1);
+            double b = GetBrightBuddha(x, y, 2);
 
             return new ColorD(r, g, b);
         }

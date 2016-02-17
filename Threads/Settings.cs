@@ -15,6 +15,7 @@ namespace MandelThreads
         public static int SaveSecs = 60 * 30;
 
         public static bool SaveAngleData = true;
+        public static bool SaveTriLimits = false;
         public static int Width = 8192;
         public static int Height = 8192;
         public static int ViewOffX = 0;
@@ -23,6 +24,8 @@ namespace MandelThreads
         public static int ViewHeight = 8192;
         public static int Scale = 8;
         public static int Iters = 500000;
+        public static int Iters2 = 50000;
+        public static int Iters3 = 5000;
         public static int Alias = 25;
         public static int Threads = 6;
 
@@ -81,6 +84,12 @@ namespace MandelThreads
                             case "iters":
                                 Iters = ParseNum(split[1].Trim());
                                 break;
+                            case "iters2":
+                                Iters2 = ParseNum(split[1].Trim());
+                                break;
+                            case "iters3":
+                                Iters3 = ParseNum(split[1].Trim());
+                                break;
                             case "alias":
                                 Alias = ParseNum(split[1].Trim());
                                 break;
@@ -93,13 +102,16 @@ namespace MandelThreads
                             case "saveangledata":
                                 SaveAngleData = bool.Parse(split[1].Trim());
                                 break;
+                            case "savetrilimits":
+                                SaveTriLimits = bool.Parse(split[1].Trim());
+                                break;
                         }
                     }
                 }
 
                 return true;
             }
-            else 
+            else
             {
                 StringBuilder sb = new StringBuilder();
 
@@ -110,12 +122,17 @@ namespace MandelThreads
                 sb.AppendFormat("ViewOffY = {0}\r\n", ViewOffY);
                 sb.AppendFormat("ViewWidth = {0}\r\n", ViewWidth);
                 sb.AppendFormat("ViewHeight = {0}\r\n", ViewHeight);
-                
+
                 sb.AppendFormat("Scale = {0}\r\n", Scale);
                 sb.AppendFormat("Iters = {0}\r\n", Iters);
+                sb.AppendFormat("Iters2 = {0}\r\n", Iters2);
+                sb.AppendFormat("Iters3 = {0}\r\n", Iters3);
                 sb.AppendFormat("Alias = {0}\r\n", Alias);
                 sb.AppendFormat("Threads = {0}\r\n", Threads);
+
                 sb.AppendFormat("SaveAngleData = {0}\r\n", SaveAngleData);
+                sb.AppendFormat("SaveTriLimits = {0}\r\n", SaveTriLimits);
+
                 sb.AppendFormat("Mode = {0}\r\n", Utilities.RenderToInt(Mode));
                 sb.Append("# 1 = Buddhabrot\r\n");
                 sb.Append("# 2 = Anti-Buddhabrot\r\n");

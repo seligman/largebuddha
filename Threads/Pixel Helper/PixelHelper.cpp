@@ -76,6 +76,8 @@ pthread_mutex_t crit;
 #define LeaveCrit() 
 #endif
 
+unsigned long s_rand = 0;
+
 // Initialize any global state
 extern "C" PIXELHELPER_API void PH_InitPixelHelper()
 {
@@ -86,13 +88,15 @@ extern "C" PIXELHELPER_API void PH_InitPixelHelper()
     pthread_mutex_init(&crit, NULL);
 #endif
 #endif
-    srand((unsigned int)time(NULL));
+    s_rand = ((unsigned int)time(NULL));
 }
 
 // Internal helper to return a double, maps to .NET's Random.NextDouble()
 double rndNextDouble()
 {
-    return ((double)((rand() << 15) | rand())) / ((double)0x3FFFFFFF);
+    int a = (((s_rand = s_rand * 214013L + 2531011L) >> 16) & 0x7fff);
+    int b = (((s_rand = s_rand * 214013L + 2531011L) >> 16) & 0x7fff);
+    return ((double)((a << 15) | b)) / ((double)0x3FFFFFFF);
 }
 
 // The Chroma functions are helpers for picking a color on a Mandel render
@@ -1028,32 +1032,38 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
         {
             // Basic mandelbrot calculation, finally
             // Z(n+1) = Z(n)^2 + c
+
             int checkQuantum = 8;
             int resetCheck = checkQuantum;
             double checkLastX = -1.79769e+308;
             double checkLastY = -1.79769e+308;
             bool lookForLoops = (common->m_levelsData2 == NULL);
 
+            double xSquared = curX * curX;
+            double ySquared = curY * curY;
+
             for (int iter = 0; iter < iters; iter++)
             {
                 bailAt++;
 
-                double tempX = (curX * curX - curY * curY) + ptX;
-                double tempY = (curY * curX + curX * curY) + ptY;
+                double tempX = (xSquared - ySquared) + ptX;
+                double tempY = (curY * curX * 2) + ptY;
                 curX = tempX;
                 curY = tempY;
+                xSquared = tempX * tempX;
+                ySquared = tempY * tempY;
 
                 periodLoop++;
                 // We keep track of all the values of Z(n) for the buddhabrot
-                thread->pointTrailX[pointTrailC] = curX;
-                thread->pointTrailY[pointTrailC] = curY;
+                thread->pointTrailX[pointTrailC] = tempX;
+                thread->pointTrailY[pointTrailC] = tempY;
                 pointTrailC++;
 
-                bailX = curX;
-                bailY = curY;
+                bailX = tempX;
+                bailY = tempY;
 
                 // Did the value escape?
-                if ((curX * curX + curY * curY) > 25)
+                if ((xSquared + ySquared) > 25)
                 {
                     inSet = false;
                     break;
@@ -1170,7 +1180,7 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
         // Ok, this mode requires us to deal with the point trail, like the Buddhabrot
         if (renderTrail && !fastRender)
         {
-            double strotate = state->rotate;
+            double strotate = -state->rotate;
             double stcenterReal = state->centerX;
             double stcenterImaginary = state->centerY;
             int stwidth = state->width;
@@ -1196,8 +1206,11 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
                 double re = thread->pointTrailX[curPTc];
                 double im = thread->pointTrailY[curPTc];
 
-                double rotx = re * cos(0.0174532925199432 * -strotate) - im * sin(0.0174532925199432 * -strotate);
-                double roty = re * sin(0.0174532925199432 * -strotate) + im * cos(0.0174532925199432 * -strotate);
+                double cosrotate = cos(0.0174532925199432 * strotate);
+                double sinrotate = sin(0.0174532925199432 * strotate);
+
+                double rotx = re * cosrotate - im * sinrotate;
+                double roty = re * sinrotate + im * cosrotate;
 
                 double x = (stwidth * (-stcenterReal + 0.5 * stsize + rotx)) / stsize;
                 double y = (0.5 * stheight * stsize - stcenterImaginary * stwidth + stwidth * roty) / stsize;

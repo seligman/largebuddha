@@ -607,7 +607,6 @@ namespace VisualizeArray
             return value;
         }
 
-
         static void FindLimit(string file, int w, int h)
         {
             string cache = "limits.cache";
@@ -624,6 +623,14 @@ namespace VisualizeArray
                         i++;
                     }
                 }
+                for (int x = 0; x < 3; x++)
+                {
+                    for (int y = 0; y < 32768; y++)
+                    {
+                        Helpers.Limits2[x, y] = double.Parse(lines[i]);
+                        i++;
+                    }
+                }
             }
             else
             {
@@ -634,7 +641,7 @@ namespace VisualizeArray
                     LoaderHelper helper = null;
                     int levels = 0;
 
-                    for (int i = 0; i < 3; i ++)
+                    for (int i = 0; i < 3; i++)
                     {
                         counts[i] = new Dictionary<long, long>();
                         totalPixels[i] = 0;
@@ -710,9 +717,10 @@ namespace VisualizeArray
                                         totalPixels[i]++;
 
                                         long abs = (long)cur[x, y];
-                                        if (counts[i].ContainsKey(abs))
+                                        long temp = 0;
+                                        if (counts[i].TryGetValue(abs, out temp))
                                         {
-                                            counts[i][abs]++;
+                                            counts[i][abs] = temp + 1;
                                         }
                                         else
                                         {
@@ -777,7 +785,39 @@ namespace VisualizeArray
                                 }
                             }
 
-                            limit3 = key;
+                            if (limit3 == -1)
+                            {
+                                if (perc >= 0.9999)
+                                {
+                                    limit3 = key;
+                                }
+                            }
+                        }
+
+                        double tot = (0.9) * (((double)totalPixels[i]) * 1.0);
+                        double stepPixels = (1.0 / (32768.0)) * (tot);
+                        double checkPixels = stepPixels + (totalPixels[i] - tot);
+                        curPixels = 0;
+                        int x = 0;
+
+                        foreach (long key in keys)
+                        {
+                            curPixels += counts[i][key];
+
+                            while (curPixels >= checkPixels)
+                            {
+                                Helpers.Limits2[i, x] = key;
+                                checkPixels += stepPixels;
+                                x++;
+                                if (x == 32768)
+                                {
+                                    break;
+                                }
+                            }
+                            if (x == 32768)
+                            {
+                                break;
+                            }
                         }
 
                         Helpers.Limits[i, 0] = limit1;
@@ -785,15 +825,22 @@ namespace VisualizeArray
                         Helpers.Limits[i, 2] = limit3;
                     }
 
-                    StringBuilder sb = new StringBuilder();
+                    StringBuilder sb2 = new StringBuilder();
                     for (int x = 0; x < 3; x++)
                     {
                         for (int y = 0; y < 3; y++)
                         {
-                            sb.AppendLine(Helpers.Limits[x, y].ToString());
+                            sb2.AppendLine(Helpers.Limits[x, y].ToString());
                         }
                     }
-                    File.WriteAllText(cache, sb.ToString());
+                    for (int x = 0; x < 3; x++)
+                    {
+                        for (int y = 0; y < 32768; y++)
+                        {
+                            sb2.AppendLine(Helpers.Limits2[x, y].ToString());
+                        }
+                    }
+                    File.WriteAllText(cache, sb2.ToString());
                 }
             }
         }

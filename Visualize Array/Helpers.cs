@@ -15,6 +15,8 @@ namespace VisualizeArray
         { double.MinValue, double.MinValue, double.MinValue }, 
         { double.MinValue, double.MinValue, double.MinValue } };
 
+        public static double[,] Limits2 = new double[3, 32768];
+
         public static Modes Mode = Modes.Invalid;
 
         public enum Modes

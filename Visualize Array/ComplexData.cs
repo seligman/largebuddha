@@ -204,10 +204,10 @@ namespace VisualizeArray
             return new ColorD(r, g, b);
         }
 
-        double GetBrightBuddha(int x, int y, int level)
+        double GetBrightBuddha(int x, int y, int level, double scale)
         {
-
             UInt64 val = 0;
+
             switch (level)
             {
                 case 0:
@@ -220,19 +220,38 @@ namespace VisualizeArray
                     val = Level3[x, y];
                     break;
             }
-            double bright = val  / Helpers.Limits[level, 1];
-            bright = Math.Min(bright, 1.0);
-            return bright;
-        }
 
+            int ret = 0;
+            int check = 32768 / 2;
+            int i = 0;
+            while (check > 0)
+            {
+                i += check;
+                if (i == 32768 || val < Helpers.Limits2[level, i])
+                {
+                    if (check == 1)
+                    {
+                        check = 0;
+                        ret = i - 1;
+                    }
+                    else
+                    {
+                        i -= check;
+                        check /= 2;
+                    }
+                }
+            }
+
+            return Math.Pow(ret / 32768.0, scale);
+        }
 
         ColorD GetPointTriBuddha(int x, int y)
         {
             Complex plot = AsComplex[x, y];
 
-            double r = GetBrightBuddha(x, y, 0);
-            double g = GetBrightBuddha(x, y, 1);
-            double b = GetBrightBuddha(x, y, 2);
+            double r = GetBrightBuddha(x, y, 0, 5.5);
+            double g = GetBrightBuddha(x, y, 1, 5.5);
+            double b = GetBrightBuddha(x, y, 2, 4.0);
 
             return new ColorD(r, g, b);
         }

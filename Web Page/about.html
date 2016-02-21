@@ -105,7 +105,7 @@ div.imgblock{
 
 <p>The Mandelbrot set is a fractal.  You can find more information with <a href="http://en.wikipedia.org/wiki/Mandelbrot_set">this Wikipedia article on the Mandelbrot set</a>, but put simply:  The Mandelbrot set is the result of running the formula <span class="nobr"><i>z</i><sub><i>n</i>+1</sub> = <i>z</i><sub><i>n</i></sub><sup>2</sup> + <i>c</i></span> for each point in a range.  For every point the formula is iterated many times, if the absolute value of <i>z</i> increase beyond a threshold, it&#8217;s not inside the set, otherwise it is.</p>
 <p>That&#8217;s the basic idea, at least.  Different ways of viewing the data that this simple formula generates are possible.  For instance, instead of simply using black and white, if each pixel is colored from a palette of colors based off the number of times it takes for <i>z</i> to reach the threshold value, you end up with the color image shown here.</p>
-</div>
+<p>You can take this coloring idea a step further and pick the colors from a palette of smoothly changing colors, and smooth the change further based on how far the value escapes.  That&#8217;s what I&#8217;ve done with the &#8220;<a href="index.html#mandel">Mandelbrot</a>&#8221; view here.</p>
 
 <div class="infoblock">
 <p class="heading"><b><i>The Buddhabrot</i></b></p>
@@ -125,8 +125,8 @@ div.imgblock{
 <div class="imgcap"><a href="images/buddha_hsv.png"><img alt="One Buddhabrot image rendered by complex argument for color" width="150" height="150" src="images/buddha_hsv_tn.png" /><br />Colored by <i>c</i> values</a></div>
 </div>
 
-<p>The common way to color the Buddhabrot is to render three separate images at different iteration values.  This produces subtly different images.  Each image can be used as one of the red, green, or blue channels to create a false color image.  This is similar to the techniques used to produce false color astronomy images from different wavelengths of light.</p>
-<p>The alternative method I&#8217;ve used for the large scale map is to use the escape location to influence the color.  Basically, one can add up the value for <i>c</i> for each pixel the iteration touches. When that&#8217;s done, you can use the complex argument of the final value for each pixel to pick a color on a spectrum, and the absolute value to control the intensity.</p>
+<p>The most common way to color the Buddhabort is to render three separate images at different iteration values.  This produces subtly different images.  Then each image can be used as one of the red, green, or blue channels to create a false color image, and use a histogram equalization function to control brightness.  This is the similar to the technique used to produce false color astronomy images from different wavelengths of light.  Indeed, this is the basic idea that Melinda Green used to develop her famous view of the Buddhabrot.  You can read more about it on <a href="http://superliminal.com/fractals/bbrot/bbrot.htm">her website</a>.  Many thanks to her for help on rendering the &#8220;<a href="index.html#tricolor">Normal</a>&#8221; view presented here on the large scale render.</p>
+<p>The alternative method I&#8217;ve used for the large scale map, called &#8220;<a href="index.html">Buddhabrot</a>&#8221; here is to use the escape location to influence the color. Basically, one can add up the value for <i>c</i> for each pixel the iteration touches. When that&#8217;s done, you can use the complex argument of the final value for each pixel to pick a color on a spectrum, and the absolute value to control the intensity.</p>
 <p>And on top of that, for the <a href="index.html">large scale map</a> I&#8217;ve used a slightly muted map of colors compared to the range of colors produced by a traditional HSV algorithm to adjust for perceptual brightness, and just because I like the way it looks.</p>
 </div>
 

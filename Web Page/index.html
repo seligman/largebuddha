@@ -8,7 +8,7 @@
 <script type="text/javascript"><!--
 
 /*
-    http://closure-compiler.appspot.com/home 
+    http://closure-compiler.appspot.com/home
                                               */
 
 function opts(type, name) {
@@ -36,7 +36,7 @@ function pos(type, level, x, y) {
     }
 
     var val=(((1 << (level * 2)) - 1) & 0x55555555) + x + (y * (1 << level)) + (type * 1398101);
-    var ret=['tiles/', 'a', 'a', '/', 'a', 'a', '/', 'a', 'a', '.png'];
+    var ret=['tiles2/', 'a', 'a', '/', 'a', 'a', '/', 'a', 'a', '.png'];
     var pos=8;
 
     while(val > 0) {
@@ -46,6 +46,9 @@ function pos(type, level, x, y) {
             pos--;
         }
     }
+
+    /* TODO: Get rid of this return */
+    return 'http://nebula.scottandmichelle.net/nebula/' + ret.join('');
 
     return ret.join('');
 }
@@ -85,7 +88,30 @@ function init() {
     add(m.mapTypes,'b',2,'Normal');
     add(m.mapTypes,'m',1,'Mandelbrot');
 
-    m.setMapTypeId('n');
+    switch(window.location.hash.toLowerCase()) {
+        case '#b':
+        case '#bbrot':
+        case '#b-brot':
+        case '#buddhabrot':
+        case '#normal':
+        case '#tri':
+        case '#tricolor':
+            m.setMapTypeId('b');
+            break;
+
+        case '#m':
+        case '#m-brot':
+        case '#mbrot':
+        case '#mand':
+        case '#mandel':
+        case '#mandelbrot':
+            m.setMapTypeId('m');
+            break;
+        
+        default:
+            m.setMapTypeId('n');
+            break;
+    }
 }
 
 function add(mapTypes, id, type, name) {

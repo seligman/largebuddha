@@ -204,7 +204,7 @@ namespace VisualizeArray
             return new ColorD(r, g, b);
         }
 
-        double GetBrightBuddha(int x, int y, int level, double scale)
+        double GetBrightBuddha(int x, int y, int level)
         {
             UInt64 val = 0;
 
@@ -242,16 +242,113 @@ namespace VisualizeArray
                 }
             }
 
-            return Math.Pow(ret / 32768.0, scale);
+            return Math.Pow(ret / 32768.0, 2.2);
+        }
+
+        public static void ComplexToPoint(Complex value, out int ptx, out int pty)
+        {
+            var state_centerX = -0.174563485365959;
+            var state_centerY = -0.11673726730093;
+            var state_size = 3.8;
+            var state_rotate = 326.227841772776;
+            var state_width = Settings.Test_Run ? Settings.Test_Width : Settings.Main_Tiles_PerSide * 8192;
+            var state_height = Settings.Test_Run ? Settings.Test_Height : Settings.Main_Tiles_PerSide * 8192;
+
+            var re = value.Real;
+            var im = value.Imaginary;
+            var rot = state_rotate;
+            var width = state_width;
+            var size = state_size;
+
+            double rotx = re * Math.Cos(0.0174532925199432 * -rot) - im * Math.Sin(0.0174532925199432 * -rot);
+            double roty = re * Math.Sin(0.0174532925199432 * -rot) + im * Math.Cos(0.0174532925199432 * -rot);
+
+            double x = (width * (-state_centerX + 0.5 * size + rotx)) / size;
+            double y = (0.5 * state_height * size - state_centerY * width + width * roty) / size;
+
+            ptx = (int)Math.Round(x);
+            pty = (int)Math.Round(y);
+        }
+
+        public static bool PointInPoly(int x, int y, int[] poly)
+        {
+            bool ret = false;
+            int i = 0;
+            int j = 0;
+            int len = poly.Length;
+
+            for (i = 0, j = len - 2; i < len; j = i, i += 2)
+            {
+                if ((((poly[i + 1] <= y) && (y < poly[j + 1])) || 
+                    ((poly[j + 1] <= y) && (y < poly[i + 1]))) &&
+                    (x < (poly[j] - poly[i]) * (y - poly[i + 1]) / (poly[j + 1] - poly[i + 1]) + poly[i]))
+                {
+                    ret = !ret;
+                }
+            }
+
+            return ret;
+        }
+
+        public static bool PointInPoly(int x, int y)
+        {
+            if (s_cachedPolygon == null)
+            {
+                GetDisplayPolygon();
+            }
+
+            return PointInPoly(x, y, s_cachedPolygon);
+        }
+
+        static int[] s_cachedPolygon = null;
+
+        static int[] GetDisplayPolygon()
+        {
+            if (s_cachedPolygon == null)
+            {
+                List<int> pts = new List<int>();
+
+                AddPoint(pts, -2, -0.25);
+                AddPoint(pts, -1, -0.75);
+                AddPoint(pts, 0.5, -1.5);
+                AddPoint(pts, 0.85, -1.0);
+                AddPoint(pts, 0.85, 1.0);
+                AddPoint(pts, 0.5, 1.5);
+                AddPoint(pts, -1, 0.75);
+                AddPoint(pts, -2, 0.25);
+
+                s_cachedPolygon = pts.ToArray();
+            }
+
+            return s_cachedPolygon;
+        }
+
+        static void AddPoint(List<int> pts, double x, double y)
+        {
+            int ptx = 0;
+            int pty = 0;
+
+            ComplexData.ComplexToPoint(new Complex(x, y), out ptx, out pty);
+
+            pts.Add(ptx);
+            pts.Add(pty);
         }
 
         ColorD GetPointTriBuddha(int x, int y)
         {
             Complex plot = AsComplex[x, y];
 
-            double r = GetBrightBuddha(x, y, 0, 5.5);
-            double g = GetBrightBuddha(x, y, 1, 5.5);
-            double b = GetBrightBuddha(x, y, 2, 4.0);
+            double r = GetBrightBuddha(x, y, 0);
+            double g = GetBrightBuddha(x, y, 1);
+            double b = GetBrightBuddha(x, y, 2);
+
+#if false
+            if (PointInPoly(x, y))
+            {
+                r = 1;
+                g = 0;
+            }
+#endif
 
             return new ColorD(r, g, b);
         }

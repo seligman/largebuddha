@@ -714,17 +714,20 @@ namespace VisualizeArray
                                 {
                                     for (int y = 0; y < h; y++)
                                     {
-                                        totalPixels[i]++;
+                                        if (UsePixel(x, y, tileX, tileY))
+                                        {
+                                            totalPixels[i]++;
 
-                                        long abs = (long)cur[x, y];
-                                        long temp = 0;
-                                        if (counts[i].TryGetValue(abs, out temp))
-                                        {
-                                            counts[i][abs] = temp + 1;
-                                        }
-                                        else
-                                        {
-                                            counts[i].Add(abs, 1);
+                                            long abs = (long)cur[x, y];
+                                            long temp = 0;
+                                            if (counts[i].TryGetValue(abs, out temp))
+                                            {
+                                                counts[i][abs] = temp + 1;
+                                            }
+                                            else
+                                            {
+                                                counts[i].Add(abs, 1);
+                                            }
                                         }
                                     }
                                 }
@@ -842,6 +845,18 @@ namespace VisualizeArray
                     }
                     File.WriteAllText(cache, sb2.ToString());
                 }
+            }
+        }
+
+        static bool UsePixel(int x, int y, int tileX, int tileY)
+        {
+            if (ComplexData.PointInPoly(x + tileX * 8192, y + tileY * 8192))
+            {
+                return true;
+            }
+            else
+            {
+                return false;
             }
         }
     }

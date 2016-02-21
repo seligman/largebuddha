@@ -160,15 +160,7 @@ namespace VisualizeArray
                 br.ReadInt32();
                 br.ReadInt32();
 
-                for (int y = 0; y < 65536; y++)
-                {
-                    for (int x = 0; x < 65536; x++)
-                    {
-                        final[x / 8192, y / 8192].Write(br.ReadUInt64());
-                    }
-                }
-
-                for (int i = 0; i < 3; i++)
+                while (true)
                 {
                     if (stream.Position < stream.Length)
                     {
@@ -176,9 +168,13 @@ namespace VisualizeArray
                         {
                             for (int x = 0; x < 65536; x++)
                             {
-                                final[x / 8192, y / 8192].Write(br.ReadDouble());
+                                final[x / 8192, y / 8192].Write(br.ReadUInt64());
                             }
                         }
+                    }
+                    else
+                    {
+                        break;
                     }
                 }
             }

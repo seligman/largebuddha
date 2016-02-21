@@ -38,10 +38,6 @@ The settings themselves:
     # tools assume this size to some extent.
     ViewWidth = 8192
     ViewHeight = 8192
-    # The display scale. Should be some value so that ViewWidth/Scale 
-    # is less than the display device, though note:  The UI
-    # display is largely broken
-    Scale = 8
     # The number of iterations
     Iters = 500000
     # The number of iterations for a TriColor buddhabrot, must be less

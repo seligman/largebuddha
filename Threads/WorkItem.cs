@@ -12,8 +12,6 @@ namespace MandelThreads
         public int X;
         public int Y;
 
-        public double Perc;
-
         [MarshalAs(UnmanagedType.I4)]
         public WorkTypes WorkType;
 
@@ -22,15 +20,6 @@ namespace MandelThreads
             this.WorkType = type;
             this.X = 0;
             this.Y = 0;
-            this.Perc = 0;
-        }
-
-        public WorkItem(WorkTypes type, double perc)
-        {
-            this.WorkType = type;
-            this.X = 0;
-            this.Y = 0;
-            this.Perc = perc;
         }
 
         public WorkItem(WorkTypes type, int x, int y)
@@ -38,7 +27,6 @@ namespace MandelThreads
             this.WorkType = type;
             this.X = x;
             this.Y = y;
-            this.Perc = 0;
         }
     }
 }

@@ -200,16 +200,6 @@ namespace MandelThreads
 
                     return new WorkItem(WorkTypes.SaveState);
                 }
-                else if (!m_done && DateTime.Now > m_nextRefresh)
-                {
-                    // Time to refresh the UI, note it, and return the work item
-                    while (DateTime.Now > m_nextRefresh)
-                    {
-                        m_nextRefresh = m_nextRefresh.AddSeconds(Settings.DrawSecs);
-                    }
-
-                    return new WorkItem(WorkTypes.DrawOutput, ((double)m_completed) / ((double)m_total));
-                }
                 else
                 {
                     // No other meta-work to do, so see if we're done
@@ -406,23 +396,6 @@ namespace MandelThreads
                 m_sleep = false;
             }
         }
-
-        // Serialize and Unserialize is very broken, it can't be used to recover state anymore
-        //public void Serialize(BinaryWriter bw)
-        //{
-        //    // TODO: Fix up serialization
-        //    //bw.Write(m_x);
-        //    //bw.Write(m_y);
-        //    bw.Write(m_completed);
-        //}
-
-        //public void Deserialize(BinaryReader br)
-        //{
-        //    // TODO: Fix this up too
-        //    //m_x = br.ReadInt32();
-        //    //m_y = br.ReadInt32();
-        //    m_completed = br.ReadInt64();
-        //}
 
         // Have we aborted?
         public bool GetIsAbort()

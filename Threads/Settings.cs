@@ -22,7 +22,6 @@ namespace MandelThreads
         public static int ViewOffY = 0;
         public static int ViewWidth = 8192;
         public static int ViewHeight = 8192;
-        public static int Scale = 8;
         public static int Iters = 500000;
         public static int Iters2 = 50000;
         public static int Iters3 = 5000;
@@ -78,9 +77,6 @@ namespace MandelThreads
                             case "height":
                                 Height = ParseNum(split[1].Trim());
                                 break;
-                            case "scale":
-                                Scale = ParseNum(split[1].Trim());
-                                break;
                             case "iters":
                                 Iters = ParseNum(split[1].Trim());
                                 break;
@@ -123,7 +119,6 @@ namespace MandelThreads
                 sb.AppendFormat("ViewWidth = {0}\r\n", ViewWidth);
                 sb.AppendFormat("ViewHeight = {0}\r\n", ViewHeight);
 
-                sb.AppendFormat("Scale = {0}\r\n", Scale);
                 sb.AppendFormat("Iters = {0}\r\n", Iters);
                 sb.AppendFormat("Iters2 = {0}\r\n", Iters2);
                 sb.AppendFormat("Iters3 = {0}\r\n", Iters3);

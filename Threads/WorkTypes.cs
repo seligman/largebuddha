@@ -8,8 +8,6 @@ namespace MandelThreads
     public enum WorkTypes
     {
         CalcPixel,
-        DrawOutput,
-        DrawOutputFinal,
         SaveAndFinish,
         SaveState,
         SaveStateClose,

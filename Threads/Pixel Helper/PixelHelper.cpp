@@ -78,6 +78,39 @@ pthread_mutex_t crit;
 
 unsigned long s_rand = 0;
 
+// Current working state, shared by all threads
+struct CommonBuffer
+{
+    unsigned long long * m_levelsData;
+    unsigned long long * m_levelsData2;
+    unsigned long long * m_levelsData3;
+    double * m_levelsPlotReal;
+    double * m_levelsPlotImaginary;
+    double * m_levelsPlotOther;
+};
+
+// Unique state per thread
+struct ThreadBuffer
+{
+    void * current;
+    void * start;
+    unsigned long long left;
+    unsigned long long total;
+
+    double * pointTrailX;
+    double * pointTrailY;
+    int * pointTrailPtX;
+    int * pointTrailPtY;
+};
+
+// Helper to control which data saver to use
+typedef void(*PH_DumpInternalType)(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk);
+PH_DumpInternalType s_dumpInternal = NULL;
+void PH_DumpInternalRealImOther(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk);
+void PH_DumpInternalReal(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk);
+void PH_DumpInternalThreeLevels(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk);
+void PH_DumpInternalLevel(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk);
+
 // Initialize any global state
 extern "C" PIXELHELPER_API void PH_InitPixelHelper()
 {
@@ -368,31 +401,6 @@ extern "C" PIXELHELPER_API void* PH_Alloc(
     return ret;
 }
 
-// Current working state, shared by all threads
-struct CommonBuffer
-{
-    unsigned long long * m_levelsData;
-    unsigned long long * m_levelsData2;
-    unsigned long long * m_levelsData3;
-    double * m_levelsPlotReal;
-    double * m_levelsPlotImaginary;
-    double * m_levelsPlotOther;
-};
-
-// Unique state per thread
-struct ThreadBuffer
-{
-    void * current;
-    void * start;
-    unsigned long long left;
-    unsigned long long total;
-
-    double * pointTrailX;
-    double * pointTrailY;
-    int * pointTrailPtX;
-    int * pointTrailPtY;
-};
-
 // Undefine this to use a memory-mapped view of a file, instead of a raw malloc.  The memory map is slower, but 
 // let's us use more memory than physical RAM is available.  Though, it turns out with the Buddhabrot, that 
 // causes so much disk swapping to occur that it'll basically never finish
@@ -551,6 +559,23 @@ extern "C" PIXELHELPER_API void * PH_InitCommon(
         ret->m_levelsData3 = NULL;
     }
 
+    if (ret->m_levelsPlotReal && ret->m_levelsPlotOther)
+    {
+        s_dumpInternal = PH_DumpInternalRealImOther;
+    }
+    else if (ret->m_levelsPlotReal)
+    {
+        s_dumpInternal = PH_DumpInternalReal;
+    }
+    else if (ret->m_levelsData2)
+    {
+        s_dumpInternal = PH_DumpInternalThreeLevels;
+    }
+    else
+    {
+        s_dumpInternal = PH_DumpInternalLevel;
+    }
+
     // Finall return the mess
     return ret;
 }
@@ -628,293 +653,291 @@ extern "C" PIXELHELPER_API void * PH_InitThread()
 	thread->left += sizeof(double); \
 	thread->current = (void*)(((unsigned long long)thread->current) + sizeof(double))
 
-// Helper to 'force' cast an INT64 to double and vice versa
-#define CAST_LONG2DBL(l) *((double*)(void*)(&(l)))
-#define CAST_DBL2LONG(d) *((LONG64*)(void*)(&(d)))
+void PH_DumpInternalRealImOther(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk)
+{
+    // While there's data
+    while (thread->left < thread->total)
+    {
+        int count;
+        int level;
+        double a;
+        double b;
+        double c;
 
-// Helper to perform an InterlockedIncrement on a double by abusing InterlockedCompareExchange
-#define InterlockedIncrementDbl(loc, value) \
-        { \
-            double newCurrentValue = 0; \
-            for (;;) \
-                                    { \
-                double currentValue = newCurrentValue; \
-                double newValue = currentValue + value; \
-                LONG64 temp = InterlockedCompareExchange64((LONG64*)loc, CAST_DBL2LONG(newValue), CAST_DBL2LONG(currentValue)); \
-                newCurrentValue = CAST_LONG2DBL(temp); \
-                if (newCurrentValue == currentValue) \
-                                                { \
-                    break; \
-                                                } \
-                                    } \
+        // Get the value to apply
+        TD_GET_INT(count);
+        TD_GET_INT(level);
+        TD_GET_DOUBLE(a);
+        TD_GET_DOUBLE(b);
+        TD_GET_DOUBLE(c);
+
+        // And for each point to apply it to
+        while (count > 0)
+        {
+            int x;
+            int y;
+
+            // Get the point
+            TD_GET_INT(x);
+            TD_GET_INT(y);
+
+            // Bounds check that point
+            if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
+                y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
+            {
+                // Calc the index of the point in question
+                unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
+
+                // Note: in each of these we're adding the final exit point of the point trail to each point along the point trail
+                // For Mandelbrot renders, this just means we're storing RGB values
+                // For Buddhabrot renders this lets us determine which 'direction' each of those points averages 
+                // out to, for coloring purposes. 
+                // In either case the level data lets us know how often it was 'hit', for brightness purposes.
+
+#ifdef USE_CRIT_SECTION
+                // The critical section version is easy, just enter the critical section
+                // And update the memory
+                EnterCrit(x);
+
+                common->m_levelsData[xy]++;
+
+                common->m_levelsPlotReal[xy] += a;
+                common->m_levelsPlotImaginary[xy] += b;
+                common->m_levelsPlotOther[xy] += c;
+
+                LeaveCrit(x);
+#else
+                // The interlocked version is quicker, but odder
+                for (;;)
+                {
+                    // Set the levels data to the OWNED_VALUE sentinel value
+                    LONGLONG levelsData = InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
+
+                    // Was the value that was already in memory not owned by another thread
+                    if (levelsData != OWNED_VALUE)
+                    {
+                        // It was!  Go ahead and add one to the number of levels, and update
+                        // the other values as necessary
+                        levelsData++;
+                        common->m_levelsPlotReal[xy] += a;
+                        common->m_levelsPlotImaginary[xy] += b;
+                        common->m_levelsPlotOther[xy] += c;
+
+                        // And we're done, so put the correct value back in memory, we no longer "own"
+                        // this pixel now
+                        InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
+                        break;
+                    }
+                }
+#endif
+            }
+
+            count--;
         }
+    }
+}
 
-// Dump the work area of the current thread to the main memory area
+void PH_DumpInternalReal(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk)
+{
+    // Same as before, just unrolled to prevent doing this outer level if check a bunch of times inside the loop
+    // This is used by the Buddhabrot render
+    while (thread->left < thread->total)
+    {
+        int count;
+        int level;
+        double a;
+        double b;
+        double c;
+
+        TD_GET_INT(count);
+        TD_GET_INT(level);
+        TD_GET_DOUBLE(a);
+        TD_GET_DOUBLE(b);
+        TD_GET_DOUBLE(c);
+
+        while (count > 0)
+        {
+            int x;
+            int y;
+
+            TD_GET_INT(x);
+            TD_GET_INT(y);
+
+            if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
+                y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
+            {
+                unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
+
+#ifdef USE_CRIT_SECTION
+                EnterCrit(x);
+
+                common->m_levelsData[xy]++;
+
+                common->m_levelsPlotReal[xy] += a;
+                common->m_levelsPlotImaginary[xy] += b;
+
+                LeaveCrit(x);
+#else
+                for (;;)
+                {
+                    LONGLONG levelsData = InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
+                    if (levelsData != OWNED_VALUE)
+                    {
+                        levelsData++;
+                        common->m_levelsPlotReal[xy] += a;
+                        common->m_levelsPlotImaginary[xy] += b;
+                        InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
+                        break;
+                    }
+                }
+#endif
+            }
+
+            count--;
+        }
+    }
+}
+
+void PH_DumpInternalThreeLevels(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk)
+{
+    // Just store level data, but store three levels, depending on the levels int
+    while (thread->left < thread->total)
+    {
+        int count;
+        int level;
+        double a;
+        double b;
+        double c;
+
+        TD_GET_INT(count);
+        TD_GET_INT(level);
+        TD_GET_DOUBLE(a);
+        TD_GET_DOUBLE(b);
+        TD_GET_DOUBLE(c);
+
+        while (count > 0)
+        {
+            int x;
+            int y;
+
+            TD_GET_INT(x);
+            TD_GET_INT(y);
+
+            if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
+                y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
+            {
+                unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
+
+#ifdef USE_CRIT_SECTION
+                EnterCrit(x);
+
+                common->m_levelsData[xy]++;
+
+                LeaveCrit(x);
+#else
+                // This is different than the other two if clauses.  We do the 
+                // same owning pixel trick to attempt to limit the number of 
+                // calls to InterlockedIncrement.
+                if (level == 3)
+                {
+                    for (;;)
+                    {
+                        LONGLONG levelsData = InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
+                        if (levelsData != OWNED_VALUE)
+                        {
+                            levelsData++;
+                            common->m_levelsData2[xy]++;
+                            common->m_levelsData3[xy]++;
+                            InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
+                            break;
+                        }
+                    }
+                }
+                else if (level == 2)
+                {
+                    for (;;)
+                    {
+                        LONGLONG levelsData = InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
+                        if (levelsData != OWNED_VALUE)
+                        {
+                            levelsData++;
+                            common->m_levelsData2[xy]++;
+                            InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    InterlockedIncrement64((LONGLONG*)&common->m_levelsData[xy]);
+                }
+#endif
+            }
+
+            count--;
+        }
+    }
+}
+
+void PH_DumpInternalLevel(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk)
+{
+    // And same as the other three if clauses, but only store level data.  This is for a simple B/W 
+    // Mandelbrot render
+
+    while (thread->left < thread->total)
+    {
+        int count;
+        int level;
+        double a;
+        double b;
+        double c;
+
+        TD_GET_INT(count);
+        TD_GET_INT(level);
+        TD_GET_DOUBLE(a);
+        TD_GET_DOUBLE(b);
+        TD_GET_DOUBLE(c);
+
+        while (count > 0)
+        {
+            int x;
+            int y;
+
+            TD_GET_INT(x);
+            TD_GET_INT(y);
+
+            if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
+                y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
+            {
+                unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
+
+#ifdef USE_CRIT_SECTION
+                EnterCrit(x);
+
+                common->m_levelsData[xy]++;
+
+                LeaveCrit(x);
+#else
+                // This is different than the other clauses.  No need to 'own' a 
+                // pixel here, we can just increment the value directly using 
+                // InterlockedIncrement since we won't be touching anything else
+                InterlockedIncrement64((LONGLONG*)&common->m_levelsData[xy]);
+#endif
+            }
+
+            count--;
+        }
+    }
+}
+
 void PH_DumpInternal(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk)
 {
     if (thread->left < thread->total)
     {
         // Move back to the start of the memory region to get all the values out of it
         thread->current = thread->start;
-
-        if (common->m_levelsPlotReal && common->m_levelsPlotOther)
-        {
-            // While there's data
-            while (thread->left < thread->total)
-            {
-                int count;
-                int level;
-                double a;
-                double b;
-                double c;
-
-                // Get the value to apply
-                TD_GET_INT(count);
-                TD_GET_INT(level);
-                TD_GET_DOUBLE(a);
-                TD_GET_DOUBLE(b);
-                TD_GET_DOUBLE(c);
-
-                // And for each point to apply it to
-                while (count > 0)
-                {
-                    int x;
-                    int y;
-
-                    // Get the point
-                    TD_GET_INT(x);
-                    TD_GET_INT(y);
-
-                    // Bounds check that point
-                    if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
-                        y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
-                    {
-                        // Calc the index of the point in question
-                        unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
-
-                        // Note: in each of these we're adding the final exit point of the point trail to each point along the point trail
-                        // For Mandelbrot renders, this just means we're storing RGB values
-                        // For Buddhabrot renders this lets us determine which 'direction' each of those points averages 
-                        // out to, for coloring purposes. 
-                        // In either case the level data lets us know how often it was 'hit', for brightness purposes.
-
-#ifdef USE_CRIT_SECTION
-                        // The critical section version is easy, just enter the critical section
-                        // And update the memory
-                        EnterCrit(x);
-
-                        common->m_levelsData[xy]++;
-
-                        common->m_levelsPlotReal[xy] += a;
-                        common->m_levelsPlotImaginary[xy] += b;
-                        common->m_levelsPlotOther[xy] += c;
-
-                        LeaveCrit(x);
-#else
-                        // The interlocked version is quicker, but odder
-                        for (;;)
-                        {
-                            // Set the levels data to the OWNED_VALUE sentinel value
-                            LONGLONG levelsData = InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
-
-                            // Was the value that was already in memory not owned by another thread
-                            if (levelsData != OWNED_VALUE)
-                            {
-                                // It was!  Go ahead and add one to the number of levels, and update
-                                // the other values as necessary
-                                levelsData++;
-                                common->m_levelsPlotReal[xy] += a;
-                                common->m_levelsPlotImaginary[xy] += b;
-                                common->m_levelsPlotOther[xy] += c;
-
-                                // And we're done, so put the correct value back in memory, we no longer "own"
-                                // this pixel now
-                                InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
-                                break;
-                            }
-                        }
-#endif
-                    }
-
-                    count--;
-                }
-            }
-        }
-        else if (common->m_levelsPlotReal)
-        {
-            // Same as before, just unrolled to prevent doing this outer level if check a bunch of times inside the loop
-            // This is used by the Buddhabrot render
-            while (thread->left < thread->total)
-            {
-                int count;
-                int level;
-                double a;
-                double b;
-                double c;
-
-                TD_GET_INT(count);
-                TD_GET_INT(level);
-                TD_GET_DOUBLE(a);
-                TD_GET_DOUBLE(b);
-                TD_GET_DOUBLE(c);
-
-                while (count > 0)
-                {
-                    int x;
-                    int y;
-
-                    TD_GET_INT(x);
-                    TD_GET_INT(y);
-
-                    if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
-                        y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
-                    {
-                        unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
-
-#ifdef USE_CRIT_SECTION
-                        EnterCrit(x);
-
-                        common->m_levelsData[xy]++;
-
-                        common->m_levelsPlotReal[xy] += a;
-                        common->m_levelsPlotImaginary[xy] += b;
-
-                        LeaveCrit(x);
-#else
-                        for (;;)
-                        {
-                            LONGLONG levelsData = InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
-                            if (levelsData != OWNED_VALUE)
-                            {
-                                levelsData++;
-                                common->m_levelsPlotReal[xy] += a;
-                                common->m_levelsPlotImaginary[xy] += b;
-                                InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
-                                break;
-                            }
-                        }
-#endif
-                    }
-
-                    count--;
-                }
-            }
-        }
-        else if (common->m_levelsData2)
-        {
-            // Just store level data, but store three levels, depending on the levels int
-
-            while (thread->left < thread->total)
-            {
-                int count;
-                int level;
-                double a;
-                double b;
-                double c;
-
-                TD_GET_INT(count);
-                TD_GET_INT(level);
-                TD_GET_DOUBLE(a);
-                TD_GET_DOUBLE(b);
-                TD_GET_DOUBLE(c);
-
-                while (count > 0)
-                {
-                    int x;
-                    int y;
-
-                    TD_GET_INT(x);
-                    TD_GET_INT(y);
-
-                    if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
-                        y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
-                    {
-                        unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
-
-#ifdef USE_CRIT_SECTION
-                        EnterCrit(x);
-
-                        common->m_levelsData[xy]++;
-
-                        LeaveCrit(x);
-#else
-                        // This is different than the other two if clauses.  No need to
-                        // 'own' a pixel here, we can just increment the value directly
-                        // using InterlockedIncrement since we won't be touching anything
-                        // else
-                        if (level == 3)
-                        {
-                            InterlockedIncrement64((LONGLONG*)&common->m_levelsData[xy]);
-                            InterlockedIncrement64((LONGLONG*)&common->m_levelsData2[xy]);
-                            InterlockedIncrement64((LONGLONG*)&common->m_levelsData3[xy]);
-                        }
-                        else if (level == 2)
-                        {
-                            InterlockedIncrement64((LONGLONG*)&common->m_levelsData[xy]);
-                            InterlockedIncrement64((LONGLONG*)&common->m_levelsData2[xy]);
-                        }
-                        else
-                        {
-                            InterlockedIncrement64((LONGLONG*)&common->m_levelsData[xy]);
-                        }
-#endif
-                    }
-
-                    count--;
-                }
-            }
-        }
-        else
-        {
-            // And same as the other three if clauses, but only store level data.  This is for a simple B/W 
-            // Mandelbrot render
-
-            while (thread->left < thread->total)
-            {
-                int count;
-                int level;
-                double a;
-                double b;
-                double c;
-
-                TD_GET_INT(count);
-                TD_GET_INT(level);
-                TD_GET_DOUBLE(a);
-                TD_GET_DOUBLE(b);
-                TD_GET_DOUBLE(c);
-
-                while (count > 0)
-                {
-                    int x;
-                    int y;
-
-                    TD_GET_INT(x);
-                    TD_GET_INT(y);
-
-                    if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
-                        y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
-                    {
-                        unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
-
-#ifdef USE_CRIT_SECTION
-                        EnterCrit(x);
-
-                        common->m_levelsData[xy]++;
-
-                        LeaveCrit(x);
-#else
-                        // This is different than the other two if clauses.  No need to
-                        // 'own' a pixel here, we can just increment the value directly
-                        // using InterlockedIncrement since we won't be touching anything
-                        // else
-                        InterlockedIncrement64((LONGLONG*)&common->m_levelsData[xy]);
-#endif
-                    }
-
-                    count--;
-                }
-            }
-        }
+        
+        s_dumpInternal(common, thread, toDisk);
 
         // Reset the pointers so we can start adding data again
         thread->left = thread->total;

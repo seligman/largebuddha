@@ -95,9 +95,14 @@ namespace MandelThreads
                     Console.WriteLine("{0:yyyy/MM/dd HH:mm:ss}: Waking up now", DateTime.Now);
                     m_coords.Wakeup();
                     break;
+                case 'p':
+                case 'P':
+                    Console.WriteLine("{0:yyyy/MM/dd HH:mm:ss}: Working... {1:0.0000}%", DateTime.Now, m_coords.GetPerc() * 100.0);
+                    break;
                 case '?':
                     Console.WriteLine("Help: ");
                     Console.WriteLine("  ? - This help screen");
+                    Console.WriteLine("  P - Show current progress");
                     Console.WriteLine("  Q - Save and quit");
                     Console.WriteLine("  S - Put all worker threads to sleep");
                     Console.WriteLine("  W - Wake up all worker threads");

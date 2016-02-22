@@ -76,6 +76,7 @@ namespace VisualizeArray
             if (!ConsoleAvailable)
             {
                 Debug.WriteLine(value);
+                Console.WriteLine(value);
             }
         }
     }

@@ -835,8 +835,7 @@ void PH_DumpInternalThreeLevels(CommonBuffer * common, ThreadBuffer * thread, BO
 
                 LeaveCrit(x);
 #else
-                // This is different than the other two if clauses.  We do the 
-                // same owning pixel trick to attempt to limit the number of 
+                // We do the same owning pixel trick to attempt to limit the number of 
                 // calls to InterlockedIncrement.
                 if (level == 3)
                 {
@@ -869,7 +868,16 @@ void PH_DumpInternalThreeLevels(CommonBuffer * common, ThreadBuffer * thread, BO
                 }
                 else
                 {
-                    InterlockedIncrement64((LONGLONG*)&common->m_levelsData[xy]);
+                    for (;;)
+                    {
+                        LONGLONG levelsData = InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
+                        if (levelsData != OWNED_VALUE)
+                        {
+                            levelsData++;
+                            InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
+                            break;
+                        }
+                    }
                 }
 #endif
             }

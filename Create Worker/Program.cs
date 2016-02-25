@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -21,52 +22,29 @@ namespace CreateWorker
 
             StringBuilder sb = new StringBuilder();
 
-            sb.AppendLine("@echo off");
-
-            for (int x = 0; x < Settings.TileCount; x++)
+            for (int off = 0; off < Settings.TileCount; off++)
             {
-                CreateStep(sb, x, x);
-            }
-
-            for (int x = 0; x < Settings.TileCount; x++)
-            {
-                CreateStep(sb, x + 1, x);
-            }
-
-            for (int x = 0; x < Settings.TileCount; x++)
-            {
-                CreateStep(sb, x, 0);
-            }
-
-            for (int x = 0; x < Settings.TileCount; x++)
-            {
-                CreateStep(sb, Settings.TileCount - 1, x);
-            }
-
-            for (int x = 0; x < Settings.TileCount; x++)
-            {
-                CreateStep(sb, (Settings.TileCount - 1) - x, Settings.TileCount - 1);
-            }
-
-            for (int x = 0; x < Settings.TileCount; x++)
-            {
-                CreateStep(sb, 0, (Settings.TileCount - 1) - x);
+                for (int flip = -1; flip <= 1; flip += 2)
+                {
+                    for (int x = 0; x < Settings.TileCount; x++)
+                    {
+                        CreateStep(x + flip * off, x);
+                    }
+                }
             }
 
             for (int y = 0; y < Settings.TileCount; y++)
             {
                 for (int x = 0; x < Settings.TileCount; x++)
                 {
-                    CreateStep(sb, x, y);
+                    CreateStep(x, y);
                 }
             }
-
-            File.WriteAllText("RunThreads.cmd", sb.ToString());
 
             Console.WriteLine("All done!");
         }
 
-        static void CreateStep(StringBuilder sb, int x, int y)
+        static void CreateStep(int x, int y)
         {
             if (x < 0 || y < 0 || x >= Settings.TileCount || y >= Settings.TileCount)
             {
@@ -80,58 +58,62 @@ namespace CreateWorker
                 return;
             }
 
-            Console.WriteLine("Working on " + x + " x " + y);
-
             s_created.Add(id);
 
-            Directory.CreateDirectory(id);
+            Console.WriteLine("Working on " + x + " x " + y);
 
-            File.Copy("MandelThreads.exe", Path.Combine(id, "MandelThreads.exe"), true);
-            File.Copy("PixelHelper.dll", Path.Combine(id, "PixelHelper.dll"), true);
+            int stepNo = s_created.Count();
+            int total = Settings.TileCount * Settings.TileCount;
+            string perc = (((double)stepNo) / ((double)total) * 100.0).ToString("0.00");
 
-            StringBuilder set = new StringBuilder();
-
-            set.AppendLine("Width = " + (Settings.Worker_PixelsPerTile * Settings.TileCount));
-            set.AppendLine("Height = " + (Settings.Worker_PixelsPerTile * Settings.TileCount));
-            set.AppendLine("ViewOffX = " + (Settings.Worker_PixelsPerTile * x));
-            set.AppendLine("ViewOffY = " + (Settings.Worker_PixelsPerTile * y));
-            set.AppendLine("ViewWidth = " + Settings.Worker_PixelsPerTile);
-            set.AppendLine("ViewHeight = " + Settings.Worker_PixelsPerTile);
-            set.AppendLine("Scale = 8");
-            set.AppendLine("Iters = " + Settings.Worker_Iters);
-            set.AppendLine("Iters2 = " + Settings.Worker_Iters2);
-            set.AppendLine("Iters3 = " + Settings.Worker_Iters3);
-            set.AppendLine("Alias = " + Settings.Worker_Alias);
-            set.AppendLine("Threads = " + Settings.Worker_Threads);
-            set.AppendLine("SaveAngleData = " + Settings.Worker_SaveAngleData);
-            set.AppendLine("SaveTriLimits = " + Settings.Worker_SaveTriLimits);
-
-            if (Settings.Worker_DrawBuddhabrot)
+            using (var zip = ZipFile.Open("step_" + stepNo.ToString("0000") + "_" + id + ".zip", ZipArchiveMode.Create))
             {
-                set.AppendLine("Mode = 1");
-            }
-            else
-            {
-                set.AppendLine("Mode = 4");
-            }
+                zip.CreateEntryFromFile("MandelThreads.exe", "MandelThreads.exe");
+                zip.CreateEntryFromFile("PixelHelper.dll", "PixelHelper.dll");
+                zip.CreateEntryFromFile("VisualizeArray.exe", "VisualizeArray.exe");
 
-            File.WriteAllText(Path.Combine(id, "Settings.txt"), set.ToString());
+                var entry = zip.CreateEntry("Settings.txt");
+                using (StreamWriter set = new StreamWriter(entry.Open()))
+                {
+                    set.WriteLine("Width = " + (Settings.Worker_PixelsPerTile * Settings.TileCount));
+                    set.WriteLine("Height = " + (Settings.Worker_PixelsPerTile * Settings.TileCount));
+                    set.WriteLine("ViewOffX = " + (Settings.Worker_PixelsPerTile * x));
+                    set.WriteLine("ViewOffY = " + (Settings.Worker_PixelsPerTile * y));
+                    set.WriteLine("ViewWidth = " + Settings.Worker_PixelsPerTile);
+                    set.WriteLine("ViewHeight = " + Settings.Worker_PixelsPerTile);
+                    set.WriteLine("Scale = 8");
+                    set.WriteLine("Iters = " + Settings.Worker_Iters);
+                    set.WriteLine("Iters2 = " + Settings.Worker_Iters2);
+                    set.WriteLine("Iters3 = " + Settings.Worker_Iters3);
+                    set.WriteLine("Alias = " + Settings.Worker_Alias);
+                    set.WriteLine("Threads = " + Settings.Worker_Threads);
+                    set.WriteLine("SaveAngleData = " + Settings.Worker_SaveAngleData);
+                    set.WriteLine("SaveTriLimits = " + Settings.Worker_SaveTriLimits);
 
-            sb.AppendLine("");
-            sb.AppendLine("if exist \"" + id + "\" (");
-            sb.AppendLine("    cd " + id + "");
-            sb.AppendLine("    if not exist \"MandelThreads_0000.dat\" (");
-            sb.AppendLine("        echo Working on Tile: " + x + " x " + y + "");
-            sb.AppendLine("        MandelThreads.exe");
-            sb.AppendLine("    )");
-            sb.AppendLine("    cd ..");
-            if (Settings.CallS3Script)
-            {
-                sb.AppendLine("    call SendToS3.cmd " + id);
+                    if (Settings.Worker_DrawBuddhabrot)
+                    {
+                        set.WriteLine("Mode = 1");
+                    }
+                    else
+                    {
+                        set.WriteLine("Mode = 4");
+                    }
+                }
+
+                entry = zip.CreateEntry("RunIt.cmd");
+                using (StreamWriter set = new StreamWriter(entry.Open()))
+                {
+                    set.WriteLine("title Tile: " + x + " x " + y + "");
+                    set.WriteLine("echo Working on Tile: " + x + " x " + y);
+                    set.WriteLine("echo Step " + stepNo + " of " + total + ", " + perc + " perc");
+                    set.WriteLine("MandelThreads.exe");
+                    set.WriteLine("VisualizeArray.exe compress MandelThreads_0000.dat MandelThreads_0000.dgz");
+                    if (Settings.Worker_S3.Length > 0)
+                    {
+                        set.WriteLine("aws s3 cp MandelThreads_0000.dgz " + Settings.Worker_S3 + id + "/MandelThreads_0000.dgz");
+                    }
+                }
             }
-            sb.AppendLine(")");
-            sb.AppendLine("");
-            sb.AppendLine("if exist \"Abort.txt\" goto :EOF");
         }
     }
 }

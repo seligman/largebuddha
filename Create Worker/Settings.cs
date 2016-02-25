@@ -10,9 +10,9 @@ namespace CreateWorker
     class Settings
     {
         public static int TileCount = 16;
-        public static bool CallS3Script = true;
 
         public static bool Worker_DrawBuddhabrot = false;
+        public static string Worker_S3 = "";
         public static int Worker_Threads = 6;
         public static int Worker_PixelsPerTile = 8192;
         public static int Worker_Iters = 500000;

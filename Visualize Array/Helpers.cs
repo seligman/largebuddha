@@ -67,7 +67,7 @@ namespace VisualizeArray
             return ret;
         }
 
-        public static string GetBig(int x, int y)
+        public static string GetBig(int x, int y, bool huge)
         {
             string ret = null;
             if (x == -1 || y == -1)
@@ -87,7 +87,14 @@ namespace VisualizeArray
                         throw new Exception();
                 }
 
-                ret += ".png";
+                if (huge)
+                {
+                    ret += "_huge.png";
+                }
+                else
+                {
+                    ret += ".png";
+                }
             }
             else
             {
@@ -108,7 +115,14 @@ namespace VisualizeArray
 
                 ret = Path.Combine(ret, "tile_" + x.ToString("00") + "_" + y.ToString("00"));
 
-                ret += ".png";
+                if (huge)
+                {
+                    ret += "_huge.png";
+                }
+                else
+                {
+                    ret += ".png";
+                }
             }
 
             CreateDir(Path.GetDirectoryName(ret));
@@ -121,6 +135,7 @@ namespace VisualizeArray
             switch (Mode)
             {
                 case Modes.TriBuddha:
+                    return string.Format(Path.Combine(Settings.Main_SourceTriBuddhaDir, @"{0}x{1}\MandelThreads_0000.dat"), a, b);
                 case Modes.Buddha:
                     return string.Format(Path.Combine(Settings.Main_SourceBuddhaDir, @"{0}x{1}\MandelThreads_0000.dat"), a, b);
                 case Modes.Mandel:
@@ -130,20 +145,34 @@ namespace VisualizeArray
             }
         }
 
-        public static void SplitImage(string sourceFile, string destDir, int offDestX, int offDestY)
+        static Stream OpenDataFile(string file)
         {
-            Stream[,] streams = new Stream[8, 8];
-            BinaryWriter[,] final = new BinaryWriter[8, 8];
-
-            for (int x = 0; x < 8; x++)
+            if (file.ToLower().EndsWith("dgz"))
             {
-                for (int y = 0; y < 8; y++)
+                return new GZipStream(File.OpenRead(file), CompressionMode.Decompress);
+            }
+            else
+            {
+                return File.OpenRead(file);
+            }
+        }
+
+        public static void SplitImage()
+        {
+            Stream[,] streams = new Stream[Settings.Split_Tiles_Width, Settings.Split_Tiles_Height];
+            BinaryWriter[,] final = new BinaryWriter[Settings.Split_Tiles_Width, Settings.Split_Tiles_Height];
+
+            for (int x = 0; x < Settings.Split_Tiles_Width; x++)
+            {
+                for (int y = 0; y < Settings.Split_Tiles_Height; y++)
                 {
-                    string file = Path.Combine(destDir, (x + offDestX) + "x" + (y + offDestY));
+                    string file = Path.Combine(Settings.Split_Dest, (x + Settings.Split_Offset_X) + "x" + (y + Settings.Split_Offset_Y));
+                    
                     if (!Directory.Exists(file))
                     {
                         Directory.CreateDirectory(file);
                     }
+
                     file = Path.Combine(file, "MandelThreads_0000.dat");
 
                     streams[x, y] = File.OpenWrite(file);
@@ -154,7 +183,7 @@ namespace VisualizeArray
                 }
             }
 
-            using (Stream stream = File.OpenRead(sourceFile))
+            using (Stream stream = OpenDataFile(Settings.Split_Source))
             using (BinaryReader br = new BinaryReader(stream))
             {
                 br.ReadInt32();
@@ -164,9 +193,9 @@ namespace VisualizeArray
                 {
                     if (stream.Position < stream.Length)
                     {
-                        for (int y = 0; y < 65536; y++)
+                        for (int y = 0; y < Settings.Split_Tiles_Height * 8192; y++)
                         {
-                            for (int x = 0; x < 65536; x++)
+                            for (int x = 0; x < Settings.Split_Tiles_Width * 8192; x++)
                             {
                                 final[x / 8192, y / 8192].Write(br.ReadUInt64());
                             }
@@ -179,9 +208,9 @@ namespace VisualizeArray
                 }
             }
 
-            for (int x = 0; x < 8; x++)
+            for (int x = 0; x < Settings.Split_Tiles_Width; x++)
             {
-                for (int y = 0; y < 8; y++)
+                for (int y = 0; y < Settings.Split_Tiles_Height; y++)
                 {
                     final[x, y].Close();
                     final[x, y] = null;

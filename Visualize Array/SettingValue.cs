@@ -10,6 +10,7 @@ namespace VisualizeArray
     {
         public string Name;
         public FieldInfo Field;
+        public string Comment = null;
 
         static int ParseNum(string val)
         {

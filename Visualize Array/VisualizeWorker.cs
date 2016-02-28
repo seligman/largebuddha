@@ -25,7 +25,6 @@ namespace VisualizeArray
                 int w = Settings.Test_Width;
                 int h = Settings.Test_Height;
                 Helpers.Mode = Helpers.Modes.TriBuddha;
-                // FindLimitTriBuddha(Settings.Test_Source, w, h);
                 FindLimit(Settings.Test_Source, w, h);
                 BitBits bit = new BitBits(w, h, true);
                 ComplexData data = ComplexData.LoadFile(Settings.Test_Source, w, h);
@@ -40,7 +39,7 @@ namespace VisualizeArray
 
             if (Settings.Split_Run)
             {
-                Helpers.SplitImage(Settings.Split_Source, Settings.Split_Dest, Settings.Split_Offset_X, Settings.Split_Offset_Y);
+                Helpers.SplitImage();
             }
 
             if (Settings.Main_Action_DrawBuddha)
@@ -219,13 +218,6 @@ namespace VisualizeArray
 
                         perTile *= 2;
                         size /= 2;
-                    }
-
-                    if (Settings.Main_Action_DrawFullSizeTiles)
-                    {
-                        BitBits bit = new BitBits(8192, 8192, true);
-                        CopyRect48(new Rectangle(0, 0, 8192, 8192), new Rectangle(0, 0, 8192, 8192), data, bit);
-                        bit.Save(Helpers.GetBig(pt.X, pt.Y));
                     }
                 }
 
@@ -503,7 +495,7 @@ namespace VisualizeArray
             {
                 for (int b = 0; b < Settings.Main_Tiles_PerSide; b++)
                 {
-                    string bitsFile = Helpers.GetBig(a, b) + ".bits";
+                    string bitsFile = Helpers.GetBig(a, b, false) + ".bits";
                     if (File.Exists(bitsFile))
                     {
                         MyConsole.WriteLine("Using cache for " + a + " x " + b + " (" + 0 + ")");
@@ -516,10 +508,12 @@ namespace VisualizeArray
                         if (data.Loaded)
                         {
                             BitBits bitBig = null;
+                            BitBits bitHuge = null;
 
-                            if (!File.Exists(Helpers.GetBig(a, b)))
+                            if (!File.Exists(Helpers.GetBig(a, b, false)))
                             {
                                 bitBig = new BitBits(2048, 2048, false);
+                                bitHuge = new BitBits(8192, 8192, false);
                             }
 
                             CopyRect(
@@ -538,16 +532,27 @@ namespace VisualizeArray
                                     data,
                                     bitBig, false);
 
-                                bitBig.Save(Helpers.GetBig(a, b));
+                                bitBig.Save(Helpers.GetBig(a, b, false));
+
+                                if (Settings.Main_Action_DrawFullSizeTiles)
+                                {
+                                    CopyRect(
+                                        new Rectangle(0, 0, 8192, 8192),
+                                        new Rectangle(0, 0, 8192, 8192),
+                                        data,
+                                        bitHuge, false);
+
+                                    bitHuge.Save(Helpers.GetBig(a, b, true));
+                                }
                             }
 
-                            bit.Save(Helpers.GetBig(-1, -1), false);
+                            bit.Save(Helpers.GetBig(-1, -1, false), false);
                         }
                     }
                 }
             }
 
-            bit.Save(Helpers.GetBig(-1, -1));
+            bit.Save(Helpers.GetBig(-1, -1, false));
         }
 
         static List<TopImageStep> CreateTopImages(int level, int tiles, int perTile)
@@ -610,6 +615,11 @@ namespace VisualizeArray
         static void FindLimit(string file, int w, int h)
         {
             string cache = "limits.cache";
+
+            if (Helpers.Mode == Helpers.Modes.TriBuddha)
+            {
+                cache = "tri-limits.cache";
+            }
 
             if (File.Exists(cache) && !Settings.Test_Run)
             {

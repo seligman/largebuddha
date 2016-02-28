@@ -76,8 +76,6 @@ pthread_mutex_t crit;
 #define LeaveCrit() 
 #endif
 
-unsigned long s_rand = 0;
-
 // Current working state, shared by all threads
 struct CommonBuffer
 {
@@ -101,6 +99,8 @@ struct ThreadBuffer
     double * pointTrailY;
     int * pointTrailPtX;
     int * pointTrailPtY;
+
+    unsigned int rand;
 };
 
 // Helper to control which data saver to use
@@ -121,15 +121,6 @@ extern "C" PIXELHELPER_API void PH_InitPixelHelper()
     pthread_mutex_init(&crit, NULL);
 #endif
 #endif
-    s_rand = ((unsigned int)time(NULL));
-}
-
-// Internal helper to return a double, maps to .NET's Random.NextDouble()
-double rndNextDouble()
-{
-    int a = (((s_rand = s_rand * 214013L + 2531011L) >> 16) & 0x7fff);
-    int b = (((s_rand = s_rand * 214013L + 2531011L) >> 16) & 0x7fff);
-    return ((double)((a << 15) | b)) / ((double)0x3FFFFFFF);
 }
 
 // The Chroma functions are helpers for picking a color on a Mandel render
@@ -333,7 +324,7 @@ void EnginePointToComplex(int itemX, int itemY, MandelState * state, double * pt
     re = temp * state->centerX + re;
     im = temp * state->centerY + im;
 
-    temp = (state->rotate * 3.141592653589) / (180);
+    temp = state->rotate / 57.295779513082;
 
     double re2 = cos(temp);
     double im2 = sin(temp);
@@ -392,7 +383,7 @@ extern "C" PIXELHELPER_API void PH_Test(
 extern "C" PIXELHELPER_API void* PH_Alloc(
     unsigned long long length)
 {
-    void* ret = LocalAlloc(LPTR, (size_t)length);
+    void* ret = _aligned_malloc((size_t)length, 8);
     if (ret)
     {
         // This forces a page write, to allocate each page
@@ -401,9 +392,11 @@ extern "C" PIXELHELPER_API void* PH_Alloc(
     return ret;
 }
 
-// Undefine this to use a memory-mapped view of a file, instead of a raw malloc.  The memory map is slower, but 
-// let's us use more memory than physical RAM is available.  Though, it turns out with the Buddhabrot, that 
+// Undefine this to use a memory-mapped view of a file, instead of a raw 
+// malloc.  The memory map is slower, but let's us use more memory than 
+// physical RAM is available.  Though, it turns out with the Buddhabrot, that 
 // causes so much disk swapping to occur that it'll basically never finish
+
 // #define USE_MEMORY_MAP
 
 // This is the sentinel value used to know if a given thread 'owns' a pixel for updating it
@@ -444,7 +437,7 @@ extern "C" PIXELHELPER_API void PH_CloseAll()
 #else
     if (lpVoidOrig)
     {
-        free(lpVoidOrig);
+        _aligned_free(lpVoidOrig);
         lpVoidOrig = NULL;
     }
 #endif
@@ -588,6 +581,8 @@ extern "C" PIXELHELPER_API void * PH_InitThread()
 
     if (ret)
     {
+        ret->rand = ((unsigned int)time(NULL)) + (unsigned int)(void*)ret;
+
         // This is the work area, we store results here first, then when it
         // nears full, apply it all to the common area
         if (sizeof(void*) == 4)
@@ -596,7 +591,7 @@ extern "C" PIXELHELPER_API void * PH_InitThread()
         }
         else
         {
-            ret->total = 500ULL * 1024ULL * 1024ULL;
+            ret->total = 100ULL * 1024ULL * 1024ULL;
         }
 
         // How much data is left?
@@ -627,31 +622,22 @@ extern "C" PIXELHELPER_API void * PH_InitThread()
 
 // Some helpers to manage pushing and popping data from the thread's storage area
 
-// Push an int to the memory blob
-#define TD_PUSH_INT(val) \
-	*((int*)(thread->current)) = (val); \
-	thread->left -= sizeof(int); \
-	thread->current = (void*)(((unsigned long long)thread->current) + sizeof(int))
-// Push a double to the memory blob
-#define TD_PUSH_DOUBLE(val) \
-	*((double*)(thread->current)) = (val); \
-	thread->left -= sizeof(double); \
-	thread->current = (void*)(((unsigned long long)thread->current) + sizeof(double))
+// Push an value to the memory blob
+#define TD_PUSH(type, val) \
+	*((type*)(thread->current)) = (val); \
+	thread->left -= sizeof(type); \
+	thread->current = (void*)(((unsigned long long)thread->current) + sizeof(type))
+
 // Give the size (in bytes) of a given number of elements to store, it's 
 //  (2 * int + 3 * double) + (int * (2 * count))
 #define TD_SIZE_FOR_ELEMENTS(val) \
 	((2 * sizeof(int)) + (sizeof(double) * 3) + (sizeof(int) * (2 * (val))))
 
-// Get an int from the the current position and move forward
-#define TD_GET_INT(val) \
-	val = *((int*)thread->current); \
-	thread->left += sizeof(int); \
-	thread->current = (void*)(((unsigned long long)thread->current) + sizeof(int))
-// Get a double from the current memory blob
-#define TD_GET_DOUBLE(val) \
-	val = *((double*)thread->current); \
-	thread->left += sizeof(double); \
-	thread->current = (void*)(((unsigned long long)thread->current) + sizeof(double))
+// Get an value from the the current position and move forward
+#define TD_GET(type, val) \
+	val = *((type*)thread->current); \
+	thread->left += sizeof(type); \
+	thread->current = (void*)(((unsigned long long)thread->current) + sizeof(type))
 
 void PH_DumpInternalRealImOther(CommonBuffer * common, ThreadBuffer * thread, BOOL toDisk)
 {
@@ -665,75 +651,68 @@ void PH_DumpInternalRealImOther(CommonBuffer * common, ThreadBuffer * thread, BO
         double c;
 
         // Get the value to apply
-        TD_GET_INT(count);
-        TD_GET_INT(level);
-        TD_GET_DOUBLE(a);
-        TD_GET_DOUBLE(b);
-        TD_GET_DOUBLE(c);
+        TD_GET(int, count);
+        TD_GET(int, level);
+        TD_GET(double, a);
+        TD_GET(double, b);
+        TD_GET(double, c);
+
+#ifdef USE_CRIT_SECTION
+        EnterCrit();
+#endif
 
         // And for each point to apply it to
         while (count > 0)
         {
-            int x;
-            int y;
+            // Get the index of the point in question
+            unsigned long long xy;
+            TD_GET(unsigned long long, xy);
 
-            // Get the point
-            TD_GET_INT(x);
-            TD_GET_INT(y);
-
-            // Bounds check that point
-            if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
-                y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
-            {
-                // Calc the index of the point in question
-                unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
-
-                // Note: in each of these we're adding the final exit point of the point trail to each point along the point trail
-                // For Mandelbrot renders, this just means we're storing RGB values
-                // For Buddhabrot renders this lets us determine which 'direction' each of those points averages 
-                // out to, for coloring purposes. 
-                // In either case the level data lets us know how often it was 'hit', for brightness purposes.
+            // Note: in each of these we're adding the final exit point of the point trail to each point along the point trail
+            // For Mandelbrot renders, this just means we're storing RGB values
+            // For Buddhabrot renders this lets us determine which 'direction' each of those points averages 
+            // out to, for coloring purposes. 
+            // In either case the level data lets us know how often it was 'hit', for brightness purposes.
 
 #ifdef USE_CRIT_SECTION
-                // The critical section version is easy, just enter the critical section
-                // And update the memory
-                EnterCrit(x);
+            // The critical section version is easy, just enter the critical section
+            // And update the memory
+            common->m_levelsData[xy]++;
 
-                common->m_levelsData[xy]++;
-
-                common->m_levelsPlotReal[xy] += a;
-                common->m_levelsPlotImaginary[xy] += b;
-                common->m_levelsPlotOther[xy] += c;
-
-                LeaveCrit(x);
+            common->m_levelsPlotReal[xy] += a;
+            common->m_levelsPlotImaginary[xy] += b;
+            common->m_levelsPlotOther[xy] += c;
 #else
-                // The interlocked version is quicker, but odder
-                for (;;)
+            // The interlocked version is quicker, but odder
+            for (;;)
+            {
+                // Set the levels data to the OWNED_VALUE sentinel value
+                LONGLONG levelsData = InterlockedExchangeNoFence64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
+
+                // Was the value that was already in memory not owned by another thread
+                if (levelsData != OWNED_VALUE)
                 {
-                    // Set the levels data to the OWNED_VALUE sentinel value
-                    LONGLONG levelsData = InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
+                    // It was!  Go ahead and add one to the number of levels, and update
+                    // the other values as necessary
+                    levelsData++;
+                    common->m_levelsPlotReal[xy] += a;
+                    common->m_levelsPlotImaginary[xy] += b;
+                    common->m_levelsPlotOther[xy] += c;
 
-                    // Was the value that was already in memory not owned by another thread
-                    if (levelsData != OWNED_VALUE)
-                    {
-                        // It was!  Go ahead and add one to the number of levels, and update
-                        // the other values as necessary
-                        levelsData++;
-                        common->m_levelsPlotReal[xy] += a;
-                        common->m_levelsPlotImaginary[xy] += b;
-                        common->m_levelsPlotOther[xy] += c;
-
-                        // And we're done, so put the correct value back in memory, we no longer "own"
-                        // this pixel now
-                        InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
-                        break;
-                    }
+                    // And we're done, so put the correct value back in memory, we no longer "own"
+                    // this pixel now
+                    InterlockedExchangeNoFence64((LONGLONG*)&common->m_levelsData[xy], levelsData);
+                    break;
                 }
-#endif
             }
+#endif
 
             count--;
         }
+
+#ifdef USE_CRIT_SECTION
+        LeaveCrit();
+#endif
     }
 }
 
@@ -749,52 +728,47 @@ void PH_DumpInternalReal(CommonBuffer * common, ThreadBuffer * thread, BOOL toDi
         double b;
         double c;
 
-        TD_GET_INT(count);
-        TD_GET_INT(level);
-        TD_GET_DOUBLE(a);
-        TD_GET_DOUBLE(b);
-        TD_GET_DOUBLE(c);
+        TD_GET(int, count);
+        TD_GET(int, level);
+        TD_GET(double, a);
+        TD_GET(double, b);
+        TD_GET(double, c);
+
+#ifdef USE_CRIT_SECTION
+        EnterCrit();
+#endif
 
         while (count > 0)
         {
-            int x;
-            int y;
-
-            TD_GET_INT(x);
-            TD_GET_INT(y);
-
-            if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
-                y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
-            {
-                unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
+            unsigned long long xy;
+            TD_GET(unsigned long long, xy);
 
 #ifdef USE_CRIT_SECTION
-                EnterCrit(x);
+            common->m_levelsData[xy]++;
 
-                common->m_levelsData[xy]++;
-
-                common->m_levelsPlotReal[xy] += a;
-                common->m_levelsPlotImaginary[xy] += b;
-
-                LeaveCrit(x);
+            common->m_levelsPlotReal[xy] += a;
+            common->m_levelsPlotImaginary[xy] += b;
 #else
-                for (;;)
+            for (;;)
+            {
+                LONGLONG levelsData = InterlockedExchangeNoFence64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
+                if (levelsData != OWNED_VALUE)
                 {
-                    LONGLONG levelsData = InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
-                    if (levelsData != OWNED_VALUE)
-                    {
-                        levelsData++;
-                        common->m_levelsPlotReal[xy] += a;
-                        common->m_levelsPlotImaginary[xy] += b;
-                        InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
-                        break;
-                    }
+                    levelsData++;
+                    common->m_levelsPlotReal[xy] += a;
+                    common->m_levelsPlotImaginary[xy] += b;
+                    InterlockedExchangeNoFence64((LONGLONG*)&common->m_levelsData[xy], levelsData);
+                    break;
                 }
-#endif
             }
+#endif
 
             count--;
         }
+
+#ifdef USE_CRIT_SECTION
+        LeaveCrit();
+#endif
     }
 }
 
@@ -809,81 +783,65 @@ void PH_DumpInternalThreeLevels(CommonBuffer * common, ThreadBuffer * thread, BO
         double b;
         double c;
 
-        TD_GET_INT(count);
-        TD_GET_INT(level);
-        TD_GET_DOUBLE(a);
-        TD_GET_DOUBLE(b);
-        TD_GET_DOUBLE(c);
+        TD_GET(int, count);
+        TD_GET(int, level);
+        TD_GET(double, a);
+        TD_GET(double, b);
+        TD_GET(double, c);
+
+#ifdef USE_CRIT_SECTION
+        // EnterCrit();
+#endif
+
+        unsigned long long * levels = common->m_levelsData;
+        unsigned long long * levels2 = common->m_levelsData2;
+        unsigned long long * levels3 = common->m_levelsData3;
 
         while (count > 0)
         {
-            int x;
-            int y;
-
-            TD_GET_INT(x);
-            TD_GET_INT(y);
-
-            if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
-                y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
-            {
-                unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
+            unsigned long long xy;
+            TD_GET(unsigned long long, xy);
 
 #ifdef USE_CRIT_SECTION
-                EnterCrit(x);
-
-                common->m_levelsData[xy]++;
-
-                LeaveCrit(x);
-#else
-                // We do the same owning pixel trick to attempt to limit the number of 
-                // calls to InterlockedIncrement.
-                if (level == 3)
-                {
-                    for (;;)
-                    {
-                        LONGLONG levelsData = InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
-                        if (levelsData != OWNED_VALUE)
-                        {
-                            levelsData++;
-                            common->m_levelsData2[xy]++;
-                            common->m_levelsData3[xy]++;
-                            InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
-                            break;
-                        }
-                    }
-                }
-                else if (level == 2)
-                {
-                    for (;;)
-                    {
-                        LONGLONG levelsData = InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
-                        if (levelsData != OWNED_VALUE)
-                        {
-                            levelsData++;
-                            common->m_levelsData2[xy]++;
-                            InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
-                            break;
-                        }
-                    }
-                }
-                else
-                {
-                    for (;;)
-                    {
-                        LONGLONG levelsData = InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], OWNED_VALUE);
-                        if (levelsData != OWNED_VALUE)
-                        {
-                            levelsData++;
-                            InterlockedExchange64((LONGLONG*)&common->m_levelsData[xy], levelsData);
-                            break;
-                        }
-                    }
-                }
-#endif
+            if (level == 3)
+            {
+                levels[xy]++;
+                levels2[xy]++;
+                levels3[xy]++;
             }
+            else if (level == 2)
+            {
+                levels[xy]++;
+                levels2[xy]++;
+            }
+            else
+            {
+                levels[xy]++;
+            }
+#else
+            if (level == 3)
+            {
+                InterlockedIncrementNoFence((ULONGLONG*)&levels[xy]);
+                InterlockedIncrementNoFence((ULONGLONG*)&levels2[xy]);
+                InterlockedIncrementNoFence((ULONGLONG*)&levels3[xy]);
+            }
+            else if (level == 2)
+            {
+                InterlockedIncrementNoFence((ULONGLONG*)&levels[xy]);
+                InterlockedIncrementNoFence((ULONGLONG*)&levels2[xy]);
+            }
+            else
+            {
+                InterlockedIncrementNoFence((ULONGLONG*)&levels[xy]);
+            }
+#endif
 
             count--;
         }
+
+#ifdef USE_CRIT_SECTION
+        // LeaveCrit();
+#endif
     }
 }
 
@@ -900,41 +858,36 @@ void PH_DumpInternalLevel(CommonBuffer * common, ThreadBuffer * thread, BOOL toD
         double b;
         double c;
 
-        TD_GET_INT(count);
-        TD_GET_INT(level);
-        TD_GET_DOUBLE(a);
-        TD_GET_DOUBLE(b);
-        TD_GET_DOUBLE(c);
+        TD_GET(int, count);
+        TD_GET(int, level);
+        TD_GET(double, a);
+        TD_GET(double, b);
+        TD_GET(double, c);
+
+#ifdef USE_CRIT_SECTION
+        EnterCrit();
+#endif
 
         while (count > 0)
         {
-            int x;
-            int y;
-
-            TD_GET_INT(x);
-            TD_GET_INT(y);
-
-            if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
-                y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
-            {
-                unsigned long long xy = ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth));
+            unsigned long long xy;
+            TD_GET(unsigned long long, xy);
 
 #ifdef USE_CRIT_SECTION
-                EnterCrit(x);
-
-                common->m_levelsData[xy]++;
-
-                LeaveCrit(x);
+            common->m_levelsData[xy]++;
 #else
-                // This is different than the other clauses.  No need to 'own' a 
-                // pixel here, we can just increment the value directly using 
-                // InterlockedIncrement since we won't be touching anything else
-                InterlockedIncrement64((LONGLONG*)&common->m_levelsData[xy]);
+            // This is different than the other clauses.  No need to 'own' a 
+            // pixel here, we can just increment the value directly using 
+            // InterlockedIncrement since we won't be touching anything else
+            InterlockedIncrementNoFence((ULONGLONG*)&common->m_levelsData[xy]);
 #endif
-            }
 
             count--;
         }
+
+#ifdef USE_CRIT_SECTION
+        LeaveCrit();
+#endif
     }
 }
 
@@ -1005,9 +958,15 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
     // This one worker will calculate the same pixel a bunch of times
     for (state->curAnti = 0; state->curAnti < state->pointCount; state->curAnti++)
     {
-        // Add some random fuzzing to prevent morie effects
-        state->addX = rndNextDouble();
-        state->addY = rndNextDouble();
+        // Add some random fuzzing to prevent morie effects, use a local copy of a
+        // rand() implementation so it's thread safe and is ever so slightly
+        // faster than calling into a function a bunch of times
+        int randa = (((thread->rand = thread->rand * 214013L + 2531011L) >> 16) & 0x7fff);
+        int randb = (((thread->rand = thread->rand * 214013L + 2531011L) >> 16) & 0x7fff);
+        state->addX = ((double)((randa << 15) | randb)) / ((double)0x3FFFFFFF);
+        randa = (((thread->rand = thread->rand * 214013L + 2531011L) >> 16) & 0x7fff);
+        randb = (((thread->rand = thread->rand * 214013L + 2531011L) >> 16) & 0x7fff);
+        state->addY = ((double)((randa << 15) | randb)) / ((double)0x3FFFFFFF);
 
         int pointTrailC = 0;
         int pointTrailPtC = 0;
@@ -1073,6 +1032,9 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
             double xSquared = curX * curX;
             double ySquared = curY * curY;
 
+            double * ptx = thread->pointTrailX;
+            double * pty = thread->pointTrailY;
+
             for (int iter = 0; iter < iters; iter++)
             {
                 bailAt++;
@@ -1086,20 +1048,23 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
 
                 periodLoop++;
                 // We keep track of all the values of Z(n) for the buddhabrot
-                thread->pointTrailX[pointTrailC] = tempX;
-                thread->pointTrailY[pointTrailC] = tempY;
+                *ptx = tempX;
+                *pty = tempY;
                 pointTrailC++;
+                ptx++;
+                pty++;
 
                 bailX = tempX;
                 bailY = tempY;
 
                 // Did the value escape?
-                if ((xSquared + ySquared) > 25)
+                if ((xSquared + ySquared) > 25.0)
                 {
                     inSet = false;
                     break;
                 }
 
+#ifdef LOOP_CHECKS
                 // Only check for loops if we're not tracking three different iters
                 // This check can cause us to bail early, which leaves a bad
                 // artificat at lower iter levels.
@@ -1125,6 +1090,7 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
                         resetCheck = checkQuantum;
                     }
                 }
+#endif
             }
         }
 
@@ -1278,19 +1244,22 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
                     PH_DumpInternal(common, thread, FALSE);
                 }
 
-                // Just one point to update
-                TD_PUSH_INT(1);
-                // Level is ignored
-                TD_PUSH_INT(0);
+                if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
+                    y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
+                {
+                    // Just one point to update
+                    TD_PUSH(int, 1);
+                    // Level is ignored
+                    TD_PUSH(int, 0);
 
-                // Store the RGB quad
-                TD_PUSH_DOUBLE(r);
-                TD_PUSH_DOUBLE(g);
-                TD_PUSH_DOUBLE(b);
+                    // Store the RGB quad
+                    TD_PUSH(double, r);
+                    TD_PUSH(double, g);
+                    TD_PUSH(double, b);
 
-                // And the point
-                TD_PUSH_INT(x);
-                TD_PUSH_INT(y);
+                    // And the point
+                    TD_PUSH(unsigned long long, ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth)));
+                }
             }
             else
             {
@@ -1303,33 +1272,38 @@ extern "C" PIXELHELPER_API void PH_WorkerCalcPixel(
                 }
 
                 // Save the size of the point trail
-                TD_PUSH_INT(pointTrailPtC);
+                TD_PUSH(int, pointTrailPtC);
 
                 // Push the right level
                 if (bailAt < SettingsIters3)
                 {
-                    TD_PUSH_INT(3);
+                    TD_PUSH(int, 3);
                 }
                 else if (bailAt < SettingsIters2)
                 {
-                    TD_PUSH_INT(2);
+                    TD_PUSH(int, 2);
                 }
                 else
                 {
-                    TD_PUSH_INT(1);
+                    TD_PUSH(int, 1);
                 }
 
                 // Use the RG of the RGB quad to store the final
                 // exit point of the point trail, which is used to color things
-                TD_PUSH_DOUBLE(ptX);
-                TD_PUSH_DOUBLE(ptY);
-                TD_PUSH_DOUBLE(0);
+                TD_PUSH(double, ptX);
+                TD_PUSH(double, ptY);
+                TD_PUSH(double, 0);
 
                 // Add each point in the point trail
                 for (int i = 0; i < pointTrailPtC; i++)
                 {
-                    TD_PUSH_INT(thread->pointTrailPtX[i]);
-                    TD_PUSH_INT(thread->pointTrailPtY[i]);
+                    int x = thread->pointTrailPtX[i];
+                    int y = thread->pointTrailPtY[i];
+                    if (x >= SettingsViewOffX && x < SettingsViewOffX + SettingsViewWidth &&
+                        y >= SettingsViewOffY && y < SettingsViewOffY + SettingsViewHeight)
+                    {
+                        TD_PUSH(unsigned long long, ((unsigned long long)(x - SettingsViewOffX)) + (((unsigned long long)(y - SettingsViewOffY)) * ((unsigned long long)SettingsViewWidth)));
+                    }
                 }
             }
         }

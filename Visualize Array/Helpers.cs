@@ -145,78 +145,117 @@ namespace VisualizeArray
             }
         }
 
-        static Stream OpenDataFile(string file)
+        static Stream OpenDataFile(string file, out bool compressed)
         {
             if (file.ToLower().EndsWith("dgz"))
             {
+                compressed = true;
                 return new GZipStream(File.OpenRead(file), CompressionMode.Decompress);
             }
             else
             {
+                compressed = false;
                 return File.OpenRead(file);
             }
         }
 
         public static void SplitImage()
         {
-            Stream[,] streams = new Stream[Settings.Split_Tiles_Width, Settings.Split_Tiles_Height];
-            BinaryWriter[,] final = new BinaryWriter[Settings.Split_Tiles_Width, Settings.Split_Tiles_Height];
-
-            for (int x = 0; x < Settings.Split_Tiles_Width; x++)
+            bool compressed;
+            using (Stream stream = OpenDataFile(Settings.Split_Source, out compressed))
             {
-                for (int y = 0; y < Settings.Split_Tiles_Height; y++)
+                Stream[,] streams = new Stream[Settings.Split_Tiles_Width, Settings.Split_Tiles_Height];
+                BinaryWriter[,] final = new BinaryWriter[Settings.Split_Tiles_Width, Settings.Split_Tiles_Height];
+
+                for (int x = 0; x < Settings.Split_Tiles_Width; x++)
                 {
-                    string file = Path.Combine(Settings.Split_Dest, (x + Settings.Split_Offset_X) + "x" + (y + Settings.Split_Offset_Y));
-                    
-                    if (!Directory.Exists(file))
+                    for (int y = 0; y < Settings.Split_Tiles_Height; y++)
                     {
-                        Directory.CreateDirectory(file);
+                        string file = Path.Combine(Settings.Split_Dest, (x + Settings.Split_Offset_X) + "x" + (y + Settings.Split_Offset_Y));
+
+                        if (!Directory.Exists(file))
+                        {
+                            Directory.CreateDirectory(file);
+                        }
+
+                        if (compressed)
+                        {
+                            file = Path.Combine(file, "MandelThreads_0000.dgz");
+                            streams[x, y] = new GZipStream(File.OpenWrite(file), CompressionMode.Compress);
+                        }
+                        else
+                        {
+                            file = Path.Combine(file, "MandelThreads_0000.dat");
+                            streams[x, y] = File.OpenWrite(file);
+                        }
+
+                        final[x, y] = new BinaryWriter(streams[x, y]);
+
+                        final[x, y].Write((Int32)8192);
+                        final[x, y].Write((Int32)8192);
                     }
-
-                    file = Path.Combine(file, "MandelThreads_0000.dat");
-
-                    streams[x, y] = File.OpenWrite(file);
-                    final[x, y] = new BinaryWriter(streams[x, y]);
-
-                    final[x, y].Write((Int32)8192);
-                    final[x, y].Write((Int32)8192);
                 }
-            }
 
-            using (Stream stream = OpenDataFile(Settings.Split_Source))
-            using (BinaryReader br = new BinaryReader(stream))
-            {
-                br.ReadInt32();
-                br.ReadInt32();
-
-                while (true)
+                using (BinaryReader br = new BinaryReader(stream))
                 {
-                    if (stream.Position < stream.Length)
+                    br.ReadInt32();
+                    br.ReadInt32();
+
+                    int chunk = 0;
+                    DateTime next = DateTime.Now;
+
+                    while (true)
                     {
+                        if (compressed)
+                        {
+                            GZipStream temp = (GZipStream)stream;
+                            if (temp.BaseStream.Position >= temp.BaseStream.Length)
+                            {
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            if (stream.Position >= stream.Length)
+                            {
+                                break;
+                            }
+                        }
+
+                        chunk++;
+
                         for (int y = 0; y < Settings.Split_Tiles_Height * 8192; y++)
                         {
                             for (int x = 0; x < Settings.Split_Tiles_Width * 8192; x++)
                             {
                                 final[x / 8192, y / 8192].Write(br.ReadUInt64());
+
+                                if (DateTime.Now >= next)
+                                {
+                                    double percX = ((double)x) / ((double)(Settings.Split_Tiles_Width * 8192));
+                                    percX /= (double)(Settings.Split_Tiles_Height * 8192);
+                                    double percY = ((double)y) / ((double)(Settings.Split_Tiles_Height * 8192));
+
+                                    Console.WriteLine("Working on chunk " + chunk + " " + ((percX + percY) * 100.0).ToString("0.000"));
+
+                                    next = next.AddSeconds(60);
+                                }
                             }
                         }
-                    }
-                    else
-                    {
-                        break;
+
                     }
                 }
-            }
 
-            for (int x = 0; x < Settings.Split_Tiles_Width; x++)
-            {
-                for (int y = 0; y < Settings.Split_Tiles_Height; y++)
+                for (int x = 0; x < Settings.Split_Tiles_Width; x++)
                 {
-                    final[x, y].Close();
-                    final[x, y] = null;
-                    streams[x, y].Close();
-                    streams[x, y].Dispose();
-                    streams[x, y] = null;
+                    for (int y = 0; y < Settings.Split_Tiles_Height; y++)
+                    {
+                        final[x, y].Close();
+                        final[x, y] = null;
+                        streams[x, y].Close();
+                        streams[x, y].Dispose();
+                        streams[x, y] = null;
+                    }
                 }
             }
         }

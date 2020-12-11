@@ -1,0 +1,14 @@
+Misc/*
+Zoom In/*
+
+# Ignore VS Code stuff
+**/.vscode/
+
+# Visual Studio folders
+**/.vs/
+**/bin/
+**/obj/
+
+# Temp files
+*~
+**/.DS_Store/

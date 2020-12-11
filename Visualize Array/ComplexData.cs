@@ -336,8 +336,6 @@ namespace VisualizeArray
 
         ColorD GetPointTriBuddha(int x, int y)
         {
-            Complex plot = AsComplex[x, y];
-
             double r = GetBrightBuddha(x, y, 0);
             double g = GetBrightBuddha(x, y, 1);
             double b = GetBrightBuddha(x, y, 2);

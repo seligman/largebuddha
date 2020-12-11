@@ -224,6 +224,8 @@ namespace VisualizeArray
 
                         chunk++;
 
+                        MyConsole.WriteLine("Working on chunk " + chunk);
+
                         for (int y = 0; y < Settings.Split_Tiles_Height * 8192; y++)
                         {
                             for (int x = 0; x < Settings.Split_Tiles_Width * 8192; x++)
@@ -236,7 +238,7 @@ namespace VisualizeArray
                                     percX /= (double)(Settings.Split_Tiles_Height * 8192);
                                     double percY = ((double)y) / ((double)(Settings.Split_Tiles_Height * 8192));
 
-                                    Console.WriteLine("Working on chunk " + chunk + " " + ((percX + percY) * 100.0).ToString("0.000"));
+                                    MyConsole.WriteLine("  Working... " + ((percX + percY) * 100.0).ToString("0.000") + "%");
 
                                     next = next.AddSeconds(60);
                                 }
@@ -258,6 +260,8 @@ namespace VisualizeArray
                     }
                 }
             }
+
+            MyConsole.WriteLine("All done!");
         }
 
         public static string CompressedVersion(string file)
@@ -283,7 +287,7 @@ namespace VisualizeArray
 
         public static void CompressFile(string file, string dest)
         {
-            DateTime next = DateTime.Now.AddSeconds(10);
+            DateTime next = DateTime.Now;
             MyConsole.WriteLine("Working...");
 
             using (Stream sourceStream = File.OpenRead(file))
@@ -305,7 +309,7 @@ namespace VisualizeArray
 
                             if (DateTime.Now >= next)
                             {
-                                next = next.AddSeconds(10);
+                                next = next.AddSeconds(30);
                                 MyConsole.WriteLine("  " + ((((double)sourceStream.Position) / ((double)sourceStream.Length)) * 100).ToString("0.00") + " % complete...");
                             }
                         }
@@ -318,7 +322,7 @@ namespace VisualizeArray
 
         public static void DecompressFile(string file, string dest)
         {
-            DateTime next = DateTime.Now.AddSeconds(10);
+            DateTime next = DateTime.Now;
             MyConsole.WriteLine("Working...");
 
             using (Stream sourceStream = File.OpenRead(file))
@@ -340,7 +344,7 @@ namespace VisualizeArray
 
                             if (DateTime.Now >= next)
                             {
-                                next = next.AddSeconds(10);
+                                next = next.AddSeconds(30);
                                 MyConsole.WriteLine("  " + ((((double)sourceStream.Position) / ((double)sourceStream.Length)) * 100).ToString("0.00") + " % complete...");
                             }
                         }

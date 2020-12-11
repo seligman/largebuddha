@@ -82,6 +82,9 @@ div.imgblock{
 .resheading2{
   margin:0 0 0 60px;
 }
+ul{
+  list-style:none;
+}
 </style>
 </head>
 <body>
@@ -398,14 +401,39 @@ div.imgblock{
 <div class="infoblock">
 <p class="heading"><b><i>Some parting comments</i></b></p>
 <p>By far the hardest part of drawing the 131,072 x 131,072 image is the sheer memory pressure.  Because when rendering the Buddhabrot each pixel can touch just about any other pixel in the final image, it&#8217;s best to keep the entire array of pixels in memory.  And there's a severe performance impact each if that memory buffer spills over to disk.  For smaller images, or even some larger images with only a height map, this isn&#8217;t an insurmountable challenge.  For this image, however, it would require 384gb of RAM just for the image data, not to mention other smaller uses of memory ((8 bytes for the height map + 16 for the complex value) * (131,072 pixels wide * 131,072 tall) = 412,316,860,416 bytes).  Since I don&#8217;t yet have 384gb of RAM to spare, I ended up rendering the entire image several times, but only keeping a small window of the final result in memory.  After each pass, the results were saved, and a final worker was responsible for combining the results using disk back memory buffers.  All told it was several months of computer time spent rendering, spread over a few computers.</p>
-<p>From there it was a relatively simple matter of splitting up the logical large image into 4,194,303 individual 256 x 256 tiles for the various resolutions needed for the scalable map.</p>
+<p>From there it was a relatively simple matter of splitting up the logical large image into 1,398,101 individual 256 x 256 tiles for the various resolutions needed for each of the three scalable map.</p>
 <p>And finally, a bit on color.  Internally I managed images with 48 bits per pixel instead of the more common 24 BPP to prevent some banding artifacts from appearing.  I also took into account gamma correction when reducing the size of the images to help keep the quality consistent.  Hopefully the end result is worth it.</p>
+
+<p>
+And I&#8217;ll close out with some stats:
+<ul>
+<li><i>For the &#8220;Colorful&#8221; Buddhabrot set with escape values coloring the set:</i></li>
+<ul>
+<li>Source data size: 232,356,842,662 bytes</li>
+<li>Size of all tiles here: 43,602,974,295 bytes</li>
+<li>Iterations: 500,000</li>
+</ul>
+<li><i>For the &#8220;Normal&#8221; Buddhabrot set with three renders:</i></li>
+<ul>
+<li>Source data size: 62,543,745,900 bytes</li>
+<li>Size of all tiles here: 31,735,029,281 bytes</li>
+<li>Iterations: 10,000 for red, 500 for green, 100 for blue</li>
+</ul>
+<li><i>For the Mandelbrot set:</i></li>
+<ul>
+<li>Source data size: 182,520,812,200 bytes</li>
+<li>Size of all tiles here: 25,952,869,768 bytes</li>
+<li>Iterations: 500,000</li>
+</ul>
+</ul>
+</p>
 
 <p><i>-- <!-- Just make it a little harder for spam bots to get my email address --><script type="text/javascript"><!-- 
 for(var i=0;i<44;i++)document.write(String.fromCharCode("V0f1A02hPU6Q67WUA7Y5F8JV8G1W6RX3VPRYUWXW7Ehd".charCodeAt(i)^"jQFY3UTUr8W8ZC8o2T6A2x95W3E6X65Z587592v9R1JZ".charCodeAt(i)))
 // --></script>Scott Seligman<script type="text/javascript"><!--
 for(var i=0;i<4;i++)document.write(String.fromCharCode("vZ5K".charCodeAt(i)^"JuTu".charCodeAt(i)))
-// --></script></i></p>
+// --></script><br>
+Page last updated: 4:59 PM 3/8/2016</i></p>
 </div>
 
 </body>

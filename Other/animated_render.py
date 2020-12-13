@@ -11,65 +11,24 @@ from collections import defaultdict
 
 r"""
 
-To render the final collection of images to a video file, use something like
+# To render the final collection of images to a video file, use something like
 
 ffmpeg -hide_banner -f image2 -framerate 30 -i "frame_%05d.png" "animated.mp4"
 
-To view it without rendering, use:
+# To render a high quality 4k version, use something like
+
+ffmpeg -y -hide_banner -f image2 -framerate 30 -i "frame_%05d.png" -c:v libx265 -preset veryslow -b:v 100000k -x265-params pass=1 animation_4k.mkv
+ffmpeg -y -hide_banner -f image2 -framerate 30 -i "frame_%05d.png" -c:v libx265 -preset veryslow -b:v 100000k -x265-params pass=2 animation_4k.mkv
+
+# To view it without rendering, use:
 
 ffplay -hide_banner -f image2 -framerate 30 -i "frame_%05d.png"
 
 """
 
-# Turn this on to use multiple cores
-USE_MULTIPROCESSING = False
-
-# # The options that control the quality and size
-# # -- A Preview level
-# SIZE = 500              # Size in pixels
-# OFF_X, OFF_Y = 0, 0     # Offset to the image
-# SAMPLING = 2            # Number of sub-pixels to calc per pixel, this is squared per pixel
-# ROWS_PER_FRAME = 2      # Number of rows to draw before saving a frame
-# # The levels to use for the height map.  Ideally this is from
-# # a previous run with the above values already set
-# LEVELS = [[4, 5, 5], [27, 58, 110]]
-
-# # -- A Preview level, with a 16:9 display
-SIZE = 540              # Size in pixels
-OFF_X, OFF_Y = 210, 0   # Offset to the image
-SAMPLING = 2            # Number of sub-pixels to calc per pixel, this is squared per pixel
-ROWS_PER_FRAME = 2      # Number of rows to draw before saving a frame
-# The levels to use for the height map.  Ideally this is from
-# a previous run with the above values already set
-LEVELS = [[4, 5, 5], [27, 57, 115]]
-
-# # -- A normal level
-# SIZE = 500              # Size in pixels
-# OFF_X, OFF_Y = 0, 0     # Offset to the image
-# SAMPLING = 15           # Number of sub-pixels to calc per pixel, this is squared per pixel
-# ROWS_PER_FRAME = 2      # Number of rows to draw before saving a frame
-# # The levels to use for the height map.  Ideally this is from
-# # a previous run with the above values already set
-# LEVELS = [[245, 253, 254], [1295, 3015, 5188]]
-
-# # -- A high quality mode, at 1080p
-# SIZE = 1080             # Size in pixels
-# SAMPLING = 20           # Number of sub-pixels to calc per pixel, this is squared per pixel
-# OFF_X, OFF_Y = 420, 0   # Offset to the image
-# ROWS_PER_FRAME = 2      # Number of rows to draw before saving a frame
-# # The levels to use for the height map.  Ideally this is from
-# # a previous run with the above values already set
-# LEVELS = [[435, 450, 452], [2325, 5364, 9212]]
-
-# # -- A very high quality mode, at 4k
-# SIZE = 2160             # Size in pixels
-# SAMPLING = 20           # Number of sub-pixels to calc per pixel, this is squared per pixel
-# OFF_X, OFF_Y = 840, 0   # Offset to the image
-# ROWS_PER_FRAME = 4      # Number of rows to draw before saving a frame
-# # The levels to use for the height map.  Ideally this is from
-# # a previous run with the above values already set
-# LEVELS = [[435, 451, 452], [2334, 5385, 9292]]
-
+# The settings are stored in a seperate file for convenience
+# Treat all of the settings like a global variable
+from animated_render_settings import *
 
 # A class to save the current frame
 class Saver:
@@ -127,15 +86,15 @@ class Saver:
                     if x > self.ghost_x:
                         # As we draw, draw a ghost of the mandelbrot
                         color = (
-                            min(255, int(color[1] + self.mandel[x + y * SIZE] * 40)),
-                            min(255, int(color[0] + self.mandel[x + y * SIZE] * 40)),
-                            min(255, int(color[2] + self.mandel[x + y * SIZE] * 40)),
+                            min(255, int(color[1] + self.mandel[x + y * SIZE] * 35)),
+                            min(255, int(color[0] + self.mandel[x + y * SIZE] * 35)),
+                            min(255, int(color[2] + self.mandel[x + y * SIZE] * 35)),
                         )
 
                     self.pixels[x+OFF_X,y+OFF_Y] = color
                     if shutter is not None:
                         # Draw the shutter if we're told to
-                        if x >= shutter[0] and x < shutter[1]:
+                        if x >= shutter[0] and x <= shutter[1]:
                             self.pixels[x+OFF_X,y+OFF_Y] = (255, color[1], color[2])
             # Also show the ideal levels.  The idea here is to pick a level that's 
             # near the min and max, but leave some room for exponential growth of 
@@ -156,10 +115,10 @@ class Saver:
                 # the save if we're told to
                 self.frame += 1
                 fn = "frame_%05d.png" % (self.frame,)
-                self.im.save(fn)
+                self.im.save(os.path.join("images", fn))
 
         # Dump out some stats
-        print("%8.2f: %-16s %18s [%s, %s]" % (
+        print("%9.2f: %-16s %18s [%s, %s]" % (
             (datetime.utcnow() - self.started).total_seconds(),
             fn, 
             str(info), 
@@ -249,11 +208,24 @@ def shuffle_split(values, n):
         yield temp
 
 
+def ghost_worker(job):
+    c_r, c_i, x, y = job
+    was_in_period = [False]
+    calc_mandel(None, c_r, c_i, was_in_period=was_in_period)
+    if was_in_period[0]:
+        return (x // SAMPLING + (y // SAMPLING) * SIZE, 1)
+    else:
+        return None
+
+
 def main():
+    if not os.path.isdir("images"):
+        os.mkdir("images")
+
     # Remove any old images that exist
-    for cur in os.listdir("."):
+    for cur in os.listdir("images"):
         if cur.startswith("frame_") and cur.endswith(".png"):
-            os.unlink(cur)
+            os.unlink(os.path.join("images", cur))
 
     # This is the helper to save a frame, it has some simple state, so it's
     # implemented as a class
@@ -263,19 +235,30 @@ def main():
     skip = 0
 
     # Prepare the shadow mandelbrot first
-    for x in range(0, SIZE * SAMPLING):
-        c_i = ((x / (SIZE * SAMPLING)) * 3.0) - 1.5
-        for y in range(0, SIZE * SAMPLING):
-            c_r = ((y / (SIZE * SAMPLING)) * 3.0) - 2.0
-            was_in_period = [False]
-            calc_mandel(None, c_r, c_i, was_in_period=was_in_period)
-            if was_in_period[0]:
-                saver.mandel[x // SAMPLING + (y // SAMPLING) * SIZE] += 1
+    if SHOW_GHOST:
+        for x in range(0, SIZE * SAMPLING):
+            c_i = ((x / (SIZE * SAMPLING)) * 3.0) - 1.5
+            if USE_MULTIPROCESSING:
+                todo = []
+                for y in range(0, SIZE * SAMPLING):
+                    c_r = ((y / (SIZE * SAMPLING)) * 3.0) - 2.0
+                    todo.append((c_r, c_i, x, y))
+                with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+                    for job in pool.imap_unordered(ghost_worker, todo, chunksize=SAMPLING*2):
+                        if job is not None:
+                            saver.mandel[job[0]] += job[1]
+            else:
+                for y in range(0, SIZE * SAMPLING):
+                    c_r = ((y / (SIZE * SAMPLING)) * 3.0) - 2.0
+                    was_in_period = [False]
+                    calc_mandel(None, c_r, c_i, was_in_period=was_in_period)
+                    if was_in_period[0]:
+                        saver.mandel[x // SAMPLING + (y // SAMPLING) * SIZE] += 1
 
-        skip += 1
-        if skip == SAMPLING * ROWS_PER_FRAME:
-            skip = 0
-            saver.save_frame(None, "Ghost, %6.2f" % (c_i,), None)
+            skip += 1
+            if skip == SAMPLING * ROWS_PER_FRAME:
+                skip = 0
+                saver.save_frame(None, "Ghost, %8.4f" % (c_i,), None)
 
     for x in range(SIZE):
         for y in range(SIZE):
@@ -289,6 +272,10 @@ def main():
     skip = 0
     # Just track if we hit _any_ pixels at all, if we didn't don't bother saving the frame
     pixels_hit = 0
+    # And also track the total number of pixels hit overall
+    pixels_hit_total = 0
+    # And finally, track the shutter size
+    pixels_hit_shutter = 0
 
     # The bits we need for mutliprocessing
     if USE_MULTIPROCESSING:
@@ -341,10 +328,20 @@ def main():
                     for i, count in batch[rgb].items():
                         hits[i][rgb] += count
                         pixels_hit += count
+                        pixels_hit_total += count
+                        pixels_hit_shutter += count
 
         # And dump out the frame if we've done enough work
         skip += 1
+        draw_time = False
         if skip == SAMPLING * ROWS_PER_FRAME:
+            draw_time = True
+        
+        if TARGET_PIXS_FRAME is not None:
+            if pixels_hit_shutter >= TARGET_PIXS_FRAME:
+                draw_time = True
+        
+        if draw_time:
             if USE_MULTIPROCESSING:
                 if len(batch) > 0:
                     queue.put(('work', batch))
@@ -356,8 +353,10 @@ def main():
                         for i, count in temp[rgb]:
                             hits[i][rgb] += count
                             pixels_hit += count
+                            pixels_hit_total += count
                 
             skip = 0
+            pixels_hit_shutter = 0
             # Figure out where the "shutter" should be
             shutter = [
                 int(((last_shutter + 1.5) / 3) * (SIZE) + 100000.5) - 100000,
@@ -386,6 +385,10 @@ def main():
     # also repeat it a few times to give us something to "hit" in
     # case the video loops
     saver.save_frame(hits, "final", None, draw=True, repeat=30)
+
+    # Show the total number of pixels hit, this can be used to control
+    # the speed of the shutter in an optional mode
+    print("Total pixels hit: " + str(pixels_hit_total))
 
 
 if __name__ == "__main__":

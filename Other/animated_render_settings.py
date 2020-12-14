@@ -26,46 +26,46 @@ TARGET_PIXS_FRAME = None
 
 
 # ----- A Preview level ---------------------------------------------
-# SIZE = 500
-# OFF_X, OFF_Y = 0, 0
-# SAMPLING = 2
-# ROWS_PER_FRAME = 8
-# LEVELS = [[4, 4, 4], [26, 58, 108]] # verified
+SIZE = 500
+OFF_X, OFF_Y = 0, 0
+SAMPLING = 2
+ROWS_PER_FRAME = 8
+LEVELS = [[4, 4, 4], [26, 58, 108]]
 
 # ----- A Preview level, with a 16:9 display ------------------------
 # SIZE = 540
 # OFF_X, OFF_Y = 210, 0
 # SAMPLING = 2
 # ROWS_PER_FRAME = 8
-# LEVELS = [[4, 5, 5], [27, 58, 112]]  # verified
+# LEVELS = [[4, 5, 5], [27, 58, 112]]
 
 # ----- A normal level ----------------------------------------------
-SIZE = 500
-OFF_X, OFF_Y = 0, 0
-SAMPLING = 15
-ROWS_PER_FRAME = 4
-LEVELS = [[232, 241, 241], [1289, 2991, 5138]]  # verified
+# SIZE = 500
+# OFF_X, OFF_Y = 0, 0
+# SAMPLING = 15
+# ROWS_PER_FRAME = 4
+# LEVELS = [[232, 241, 241], [1289, 2991, 5138]] 
 
 # ----- A high quality mode, at 720p --------------------------------
 # SIZE = 720
 # SAMPLING = 20
 # OFF_X, OFF_Y = 280, 0
 # ROWS_PER_FRAME = 2
-# LEVELS = [[427, 442, 444], [2310, 5337, 9132]] # verified
+# LEVELS = [[427, 442, 444], [2310, 5337, 9132]]
 
 # ----- A high quality mode, at 1080p -------------------------------
 # SIZE = 1080
 # SAMPLING = 20
 # OFF_X, OFF_Y = 420, 0
 # ROWS_PER_FRAME = 2
-# LEVELS = [[427, 443, 444], [2322, 5358, 9210]] # verified
+# LEVELS = [[427, 443, 444], [2322, 5358, 9210]]
 
 # ----- A very high quality mode, at 4k -----------------------------
 # SIZE = 2160
 # SAMPLING = 20
-# OFF_X, OFF_Y = 840, 0   # Offset to the image
+# OFF_X, OFF_Y = 840, 0
 # ROWS_PER_FRAME = 4
-# LEVELS = [[435, 451, 452], [2334, 5385, 9292]]
+# LEVELS = [[427, 443, 444], [2331, 5377, 9263]]
 
 if __name__ == "__main__":
     print("This module is not meant to be run directly")

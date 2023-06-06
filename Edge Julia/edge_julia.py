@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from options import OPTIONS
+from options import OPTIONS, show_flags
 import os
 if OPTIONS["show_gui"]:
     # Only try loading pygame if needed
@@ -9,13 +9,16 @@ if OPTIONS["show_gui"]:
 if OPTIONS["multiproc"]:
     # Only need to bring in multiprocessing if needed
     import multiprocessing
-from collections import deque
+from collections import deque, defaultdict
 from datetime import datetime
 from PIL import Image
+import numpy as np
 import heapq
 import json
 import math
+import subprocess
 import time
+import mandelbrot_native_helper
 
 def gui_to_mand(pt_x, pt_y, xo=0, yo=0, alias=1, center_x=OPTIONS["mand_loc"]["x"], center_y=OPTIONS["mand_loc"]["y"], size=OPTIONS["mand_loc"]["size"]):
     # Helper to turn a point on screen to an absolute point inside the mandelbrot
@@ -167,6 +170,13 @@ class MandelEngine:
             raise Exception('Unknown cache mode')
 
     def calc_mand(self, x, y, julia=None):
+        if julia is None:
+            in_set, self.escaped_at, self.final_dist = mandelbrot_native_helper.calc(x, y, False, 0.0, 0.0, self.max_iters)
+        else:
+            in_set, self.escaped_at, self.final_dist = mandelbrot_native_helper.calc(x, y, True, julia[0], julia[1], self.max_iters)
+        return in_set == 1
+
+    def calc_mand_python(self, x, y, julia=None):
         # Calculate one point, doesn't use cache, points should be in natural coords
         # Returns True if the point is in the set, False otherwise.  On False
         # self.escaped_at is the escaped iteration, and self.final_dist is the final
@@ -273,9 +283,14 @@ class MandelEngine:
         if self.is_in_set(x, y):
             return False
         
-        for ox, oy in [[x - 1, y - 1], [x + 1, y - 1], [x - 1, y + 1], [x + 1, y + 1], [x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]:
-            if self.is_in_set(ox, oy):
-                return True
+        if self.is_in_set(x - 1, y - 1): return True
+        if self.is_in_set(x, y - 1): return True
+        if self.is_in_set(x + 1, y - 1): return True
+        if self.is_in_set(x + 1, y): return True
+        if self.is_in_set(x + 1, y + 1): return True
+        if self.is_in_set(x, y + 1): return True
+        if self.is_in_set(x - 1, y + 1): return True
+        if self.is_in_set(x - 1, y): return True
         
         return False
 
@@ -300,7 +315,8 @@ def find_edge():
         raise Exception("The start and end don't connect!")
 
     # An A* algo to find the border along the mand
-    final_trail = None
+    final_trail = deque()
+    final_head = None
     # The point where the A* algo is allowed to start searching up
     unleash = False
 
@@ -311,21 +327,41 @@ def find_edge():
     # Dump out some message every now and then for the GUI mode
     at = time.time() + 0.5
     attempts = 0
+    cost_check = 0
 
     while True:
         attempts += 1
-        cur = heapq.heappop(todo)
-        cost, x, y, _ = cur
+        cost, x, y, history = heapq.heappop(todo)
+        if (cost >= cost_check and history is not None and len(todo) == 0) or (x, y) == (tx, ty):
+            # For the last item, as well as every now and then, add the current trail we have
+            # to shrink down memory usage.  This is also where we drop points along the edge
+            # so we don't end up rendering millions of items.
+            cost_check += 5000
+            temp = deque()
+            # Invert the queue, and pop out the item we care about
+            while history is not None:
+                temp.append((history[1], history[2]))
+                history = history[3]
+            # Place the inverted queue on our final queue
+            while len(temp):
+                cur = temp.pop()
+                if final_head is None or math.sqrt(((final_head[0] - cur[0]) ** 2) + ((final_head[1] - cur[1]) ** 2)) / pixel >= OPTIONS["frame_spacing"]:
+                    final_trail.append(cur)
+                    final_head = cur
+            history = None
+            if (x, y) == (tx, ty):
+                # We hit the end point, so we're all done!
+                break
+
         if OPTIONS["show_gui"]:
             if time.time() >= at:
-                yield {"type": "msg", "msg": f"Border, working, at {cost:,}, {attempts:,} attempts"}
+                yield {"type": "msg", "msg": f"Border, working, at {cost:,}, {attempts:,} attempts, {len(todo):,} queue size, {len(final_trail):,} total frames"}
                 yield {"type": "show_loc", "status": "show", "x": x / pixel, "y": y / pixel}
                 at = time.time() + 0.5
-
-        if (x, y) == (tx, ty):
-            # We hit the end point, so we're all done!
-            final_trail = cur
-            break
+        else:
+            if time.time() >= at:
+                show_msg(f"Border: Cost: {cost:,}, Frames: {len(final_trail):,}, Loc: {x/pixel:0.4f} x {y/pixel:0.4f}")
+                at = time.time() + 60
 
         # Check all the touching points of this
         for ox, oy in [[x - 1, y - 1], [x + 1, y - 1], [x - 1, y + 1], [x + 1, y + 1], [x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]:
@@ -345,7 +381,7 @@ def find_edge():
             if not skip:
                 if bits.is_border(ox, oy):
                     # Ok, this point is possibly part of a path, go ahead and add it to our queue
-                    heapq.heappush(todo, (cost + 1, ox, oy, cur))
+                    heapq.heappush(todo, (cost + 1, ox, oy, (cost, x, y, history)))
 
     if OPTIONS["show_gui"]:
         yield {"type": "show_loc", "status": "hide"}
@@ -353,49 +389,43 @@ def find_edge():
         raise Exception("Unable to find path to connect the start and end!")
 
     # Now get the list of all points in our little data objects to build a simple list
-    cur = final_trail
-    final_trail = []
-    while cur != None:
-        _, x, y, prev = cur
-        final_trail.append((x, y))
-        cur = prev
-    # Reverse it to get the list in the same order we found it
-    final_trail = final_trail[::-1]
+    final_trail = [x for x in final_trail]
+
+    # dump = []
+    # with open("dump.jsonl", "rt") as f:
+    #     for row in f:
+    #         dump.append(tuple(json.loads(row)))
+    # errors = 0
+    # if len(dump) != len(final_trail):
+    #     print(f"Dump of {len(dump)} != final trail of {len(final_trail)}")
+    #     errors += 1
+    # for i, (ft_val, d_val) in enumerate(zip(final_trail, dump)):
+    #     if ft_val != d_val:
+    #         print(f"At {i}, val of {ft_val} != {d_val}")
+    #         errors += 1
+    #         if errors >= 15:
+    #             break
+    # if errors == 0:
+    #     print("All good!")
+    # with open("dump.jsonl", "wt") as f:
+    #     for cur in final_trail:
+    #         f.write(json.dumps(cur) + "\n")
+    # exit(0)
+
+    # Append the first frame to the end so we start where we ended
+    final_trail.append(final_trail[0])
     show_msg(f"Found trail of {len(final_trail):,} items")
 
-    # This can be turned on to give some idea how much "shrink" will impact the number of frames found
-    dump_different_trails = OPTIONS["dump_different_trails"]
-    if dump_different_trails:
-        if os.path.isfile("trail_lens.txt"):
-            os.unlink("trail_lens.txt")
-
-    for trail_len in range(5, 1000) if dump_different_trails else [OPTIONS["trail_length_target"] / OPTIONS["shrink"]]:
-        # The goal here is to create a trail of pixels all about the same length apart
-        short_trail = []
-        for x, y in final_trail:
-            if len(short_trail) == 0 or math.sqrt(((x - short_trail[-1][0]) / pixel) ** 2 + ((y - short_trail[-1][1]) / pixel) ** 2) >= 1 / trail_len:
-                short_trail.append((x, y))
-        # Go ahead and add the start to the end so we end up exactly where we started
-        short_trail.append(short_trail[0])
-        show_msg(f"Shortened trail to {len(short_trail)} items using {trail_len}")
-        if dump_different_trails:
-            with open("trail_lens.txt", "at") as f:
-                f.write(f"{trail_len:5d}: Trail: {trail_len:11,}, Short: {len(short_trail):11,}\n")
-
-    if dump_different_trails:
-        # Now go do something with this information
-        exit(0)
-
     # Animate the trail that we found, just to give some idea if it did the right thing
-    skip = max(1, len(short_trail) // 250)
-    for i, (x, y) in enumerate(short_trail):
+    skip = max(1, len(final_trail) // 250)
+    for i, (x, y) in enumerate(final_trail):
         yield {
             "type": "draw_edge",
             "x": x / pixel,
             "y": y / pixel,
             "rgb": (255, 255, 255),
             "first": i == 0,
-            "last": i == (len(short_trail) - 1),
+            "last": i == (len(final_trail) - 1),
         }
         if i % skip == 0:
             yield {"type": "animate"}
@@ -452,89 +482,64 @@ def multiproc_worker(row):
                 proc(state, job, show_msg=lambda x: None)
 
     # Just return something so the caller knows what we did
-    return row[-1]
+    return row['dest']
 
 def main_multiproc():
     # Simplified version of main() that launches multiple workers on different cores
     if os.path.isfile("abort.txt"):
         os.unlink("abort.txt")
 
-    jobs, final = [], []
     show_msg("Working...")
-    while True:
-        jobs, final = [], []
-        if os.path.isfile("abort.txt"):
-            break
-
-        with open("frames.jsonl") as f:
-            # Pull in work units
-            for row in f:
-                row = json.loads(row)
-                if not os.path.isfile(row[-1]):
-                    if row[0] == "draw":
-                        jobs.append(row)
-                        if OPTIONS["multiproc_sync"] and len(jobs) == 50:
-                            # Stop after some time in this mode to call sync helper
+    jobs, dupes = [], defaultdict(list)
+    with open("frames.jsonl") as f:
+        # Pull in work units
+        for row in f:
+            row = json.loads(row)
+            if not os.path.isfile(row["dest"]):
+                if "requires" in row:
+                    dupes[row["requires"]].append(row)
+                else:
+                    jobs.append(row)
+        
+    # Start the workers
+    args = {}
+    if "procs" in OPTIONS:
+        args["processes"] = OPTIONS["procs"]
+    with multiprocessing.Pool(**args) as pool:
+        for fn in pool.imap_unordered(multiproc_worker, jobs):
+            if fn is not None:
+                show_msg(f"Wrote {fn}")
+                if OPTIONS["multiproc_sync"]:
+                    subprocess.check_call(["python3", "sync.py", "single", fn])
+                # Make sure to run any processes that depend on this one
+                engines = []
+                for row in dupes[fn]:
+                    add_frame(engines, row)
+                for engine in engines:
+                    while True:
+                        job = next(engine)
+                        if job is None:
                             break
-                    else:
-                        # Dupes need to be done after all the other work is done
-                        final.append(row)
-        
-        if len(jobs) == 0:
-            # All done!
-            break
-
-        # Start the workers
-        with multiprocessing.Pool() as pool:
-            for msg in pool.imap_unordered(multiproc_worker, jobs):
-                if msg is not None:
-                    show_msg(msg)
-        
-        if OPTIONS["multiproc_sync"]:
-            # In sync mode, so call the helper
-            show_msg("Starting Sync...")
-            import subprocess
-            subprocess.check_call(["python3", "sync.py", "up"])
-            show_msg("Back to work...")
-        else:
-            break
+                        elif job['type'] == 'dupe_frame':
+                            handle_dupe_frame(State(), job)
+                            if OPTIONS["multiproc_sync"]:
+                                subprocess.check_call(["python3", "sync.py", "single", job["dest"]])
     
-    # Do the final work now
-    extra = 0
-    for job in final:
-        if os.path.isfile("abort.txt"):
-            break
-        engines = []
-        add_frame(engines, job)
-        for engine in engines:
-            while True:
-                ret = next(engine)
-                if ret is None:
-                    break
-        show_msg(job[-1])
-        extra += 1
-
-    if extra > 0:
-        if OPTIONS["multiproc_sync"]:
-            import subprocess
-            subprocess.check_call(["python3", "sync.py", "up"])
-
     show_msg("Done")
 
 def add_frame(engines, row):
     # Helper to create the state machine workers for a given frame
     if isinstance(row, str):
         row = json.loads(row)
-    if row[0] == "draw":
-        _, args_mand, args_set, fn = row
-        if not os.path.isfile(fn):
-            engines.append(set_target(**args_set))
-            engines.append(draw_mand(**args_mand))
-            engines.append(save_frame(fn))
-    elif row[0] == "dupe":
-        _, source, dest = row
-        if not os.path.isfile(dest):
-            engines.append(dupe_frame(source, dest))
+    if not os.path.isfile(row["dest"]):
+        if row["cmd"] == "draw":
+            engines.append(set_target(**row["set"]))
+            engines.append(draw_mand(**row["mand"]))
+            engines.append(save_frame(row["dest"]))
+        elif row["cmd"] == "dupe":
+            engines.append(dupe_frame(row["source"], row["dest"]))
+        else:
+            raise Exception(f"Unknown command: {row}")
 
 def handle_draw_mand(state, job, show_msg=show_msg):
     # Handle a draw event from a state machine
@@ -551,7 +556,7 @@ def handle_draw_mand(state, job, show_msg=show_msg):
         if alpha > 0:
             state.preview.append((alpha, list(job['rgb']), job['x'], job['y']))
 
-    if job['escape'] is None or job['escape'] >= 10:
+    if job['escape'] is None or job['escape'] >= 10 and 'julia' not in job:
         # Track the pool, so we can highlight it later, useful to see where
         # things are happening
         state.pool[(job['x'], job['y'])] = job['rgb']
@@ -559,9 +564,10 @@ def handle_draw_mand(state, job, show_msg=show_msg):
     # And light up the pixels we were told about
     for xo in range(job['skip']):
         for yo in range(job['skip']):
-            state.pixels[(job['x'] + xo, job['y'] + yo)] = job['rgb']
-            if OPTIONS["show_gui"]:
-                state.screen.set_at((job['x'] + xo, job['y'] + yo), job['rgb'])
+            if job['x'] + xo < OPTIONS["width"] and job['y'] + yo < OPTIONS["height"]:
+                state.pixels[job['y'] + yo, job['x'] + xo] = job['rgb']
+                if OPTIONS["show_gui"]:
+                    state.screen.set_at(((job['x'] + xo) // OPTIONS["gui_shrink"], (job['y'] + yo) // OPTIONS["gui_shrink"]), job['rgb'])
 
 def handle_dupe_frame(state, job, show_msg=show_msg):
     # Handle a dupe frame event, just copy the image
@@ -574,20 +580,16 @@ def handle_save_frame(state, job, show_msg=show_msg):
     # Handle a save frame event
     
     # If the preview file exists, load the data so we can add the Mandelbrot image on top
-    preview = []
     if os.path.isfile("frame_preview.jsonl"):
         with open("frame_preview.jsonl", "rb") as f:
             for row in f:
-                preview.append(json.loads(row))
-
-    # And for each pixel, blend it in
-    for alpha, rgb, x, y in preview:
-        rgb[0] = int(rgb[0] * alpha + (state.pixels[(x, y)][0]) * (1 - alpha))
-        rgb[1] = int(rgb[1] * alpha + (state.pixels[(x, y)][1]) * (1 - alpha))
-        rgb[2] = int(rgb[2] * alpha + (state.pixels[(x, y)][2]) * (1 - alpha))
-        if OPTIONS["show_gui"]:
-            state.screen.set_at((x, y), rgb)
-        state.pixels[(x, y)] = tuple(rgb)
+                alpha, rgb, x, y = json.loads(row)
+                rgb[0] = int(rgb[0] * alpha + state.pixels[y, x, 0] * (1 - alpha))
+                rgb[1] = int(rgb[1] * alpha + state.pixels[y, x, 1] * (1 - alpha))
+                rgb[2] = int(rgb[2] * alpha + state.pixels[y, x, 2] * (1 - alpha))
+                if OPTIONS["show_gui"]:
+                    state.screen.set_at((x // OPTIONS["gui_shrink"], y // OPTIONS["gui_shrink"]), rgb)
+                state.pixels[y, x] = rgb
 
     # Draw the cross hairs and circle where the Julia is pulling its point from
     size_outer = int(OPTIONS['width'] / 125)
@@ -612,20 +614,20 @@ def handle_save_frame(state, job, show_msg=show_msg):
                 alpha = alpha / 25
                 rgb = rgb / 25
                 rgb = [
-                    int((rgb * alpha) + (state.pixels[(pt_x + x, pt_y + y)][0] * (1 - alpha))),
-                    int((rgb * alpha) + (state.pixels[(pt_x + x, pt_y + y)][1] * (1 - alpha))),
-                    int((rgb * alpha) + (state.pixels[(pt_x + x, pt_y + y)][2] * (1 - alpha))),
+                    int((rgb * alpha) + (state.pixels[pt_y + y, pt_x + x, 0] * (1 - alpha))),
+                    int((rgb * alpha) + (state.pixels[pt_y + y, pt_x + x, 1] * (1 - alpha))),
+                    int((rgb * alpha) + (state.pixels[pt_y + y, pt_x + x, 2] * (1 - alpha))),
                 ]
                 if OPTIONS["show_gui"]:
-                    state.screen.set_at((pt_x + x, pt_y + y), rgb)
-                state.pixels[(pt_x + x, pt_y + y)] = tuple(rgb)
+                    state.screen.set_at(((pt_x + x) // OPTIONS["gui_shrink"], (pt_y + y) // OPTIONS["gui_shrink"]), rgb)
+                state.pixels[pt_y + y, pt_x + x] = rgb
 
     # All done, save out the PNG file
     if OPTIONS["save_results"]:
         im = Image.new('RGB', (OPTIONS['width'], OPTIONS['height']), (0, 0, 0))
         for x in range(OPTIONS['width']):
             for y in range(OPTIONS['height']):
-                im.putpixel((x, y), state.pixels.get((x, y), (0, 0, 0)))
+                im.putpixel((x, y), tuple(state.pixels[y, x]))
         im.save(job['fn'])
         im.close()
     show_msg(f"Saved {job['fn']}")
@@ -640,7 +642,14 @@ class State:
     def __init__(self):
         self.pool = {}
         self.preview = []
-        self.pixels = {}
+        self.pixels = np.zeros(
+            (
+                OPTIONS['height'], 
+                OPTIONS['width'], 
+                3
+            ), 
+            dtype=np.uint8,
+        )
         self.target = None
         self.screen = None
 
@@ -651,7 +660,7 @@ def main():
     state = State()
     if OPTIONS["show_gui"]:
         # Only setup pygame stuff if the GUI is requested
-        state.screen = pygame.display.set_mode((OPTIONS['width'], OPTIONS['height']))
+        state.screen = pygame.display.set_mode((OPTIONS['width'] // OPTIONS["gui_shrink"], OPTIONS['height'] // OPTIONS["gui_shrink"]))
         pygame.display.set_caption('Mandelbrot')
         pygame.display.flip()
         pygame.display.update()
@@ -761,11 +770,11 @@ def main():
                 elif job['type'] == 'draw_pool':
                     # Draw the pool in GUI mode, otherwise, ditch this data
                     if OPTIONS["show_gui"]:
-                        state.screen.set_at((job['x'], job['y']), job['rgb'])
+                        state.screen.set_at((job['x'] // OPTIONS["gui_shrink"], job['y'] // OPTIONS["gui_shrink"]), job['rgb'])
                 elif job['type'] == "show_loc":
                     # Little helper to draw a "location" when finding the edge
                     for (x, y), rgb in pointer.items():
-                        state.screen.set_at((x, y), rgb)
+                        state.screen.set_at((x // OPTIONS["gui_shrink"], y // OPTIONS["gui_shrink"]), rgb)
                     pointer.clear()
 
                     if job['status'] == 'show':
@@ -776,8 +785,8 @@ def main():
                             for yo in range(-size, size+1):
                                 if xo*xo+yo*yo <= size*size:
                                     if (pt_x + xo, pt_y + yo) not in pointer:
-                                        pointer[(pt_x + xo, pt_y + yo)] = state.pixels[(pt_x + xo, pt_y + yo)]
-                                        state.screen.set_at((pt_x + xo, pt_y + yo), (255, 64, 64))
+                                        pointer[(pt_x + xo, pt_y + yo)] = state.pixels[pt_y + yo, pt_x + xo]
+                                        state.screen.set_at(((pt_x + xo) // OPTIONS["gui_shrink"], (pt_y + yo) // OPTIONS["gui_shrink"]), (255, 64, 64))
                 elif job['type'] == 'draw_edge':
                     # Draw the edge that we plan to animate
                     # The first time it's called, dump out that edge to disk
@@ -788,7 +797,7 @@ def main():
                         for xo in range(-size, size+1):
                             for yo in range(-size, size+1):
                                 if xo*xo+yo*yo <= size*size:
-                                    state.screen.set_at((pt_x + xo, pt_y + yo), job['rgb'])
+                                    state.screen.set_at(((pt_x + xo) // OPTIONS["gui_shrink"], (pt_y + yo) // OPTIONS["gui_shrink"]), job['rgb'])
                     if show_border == 0 and OPTIONS["save_results"]:
                         with open("frame_preview.jsonl", "wt") as f:
                             for row in state.preview:
@@ -808,9 +817,9 @@ def main():
                             'x': job['x'],
                             'y': job['y'],
                         }
-                        fn = f"frame_{frame_number:04d}.png"
+                        fn = f"frame_{frame_number:05d}.png"
                         frame_number += 1
-                        row = ["draw", args_mand, args_set, fn]
+                        row = {"cmd": "draw", "mand": args_mand, "set": args_set, "dest": fn}
                         if OPTIONS["draw_julias"]:
                             add_frame(engines, row)
                         if OPTIONS["save_results"]:
@@ -820,16 +829,16 @@ def main():
                         dupes = 0
                         if OPTIONS["add_extra_frames"]:
                             if job["first"]:
-                                dupes = 29
+                                dupes = OPTIONS["frame_rate"] - 1
                             elif job["last"]:
-                                dupes = (30 * 5) - 1
+                                dupes = (OPTIONS["frame_rate"] * 5) - 1
                         
                         if dupes > 0:
                             source_fn = fn
                             for _ in range(dupes):
-                                fn = f"frame_{frame_number:04d}.png"
+                                fn = f"frame_{frame_number:05d}.png"
                                 frame_number += 1
-                                row = ["dupe", source_fn, fn]
+                                row = {"cmd": "dupe", "source": source_fn, "dest": fn, "requires": source_fn}
                                 add_frame(engines, row)
                                 if OPTIONS["save_results"]:
                                     with open("frames.jsonl", "at") as f:
@@ -842,6 +851,7 @@ def main():
                 pygame.display.update()
 
 if __name__ == "__main__":
+    show_flags()
     if OPTIONS["multiproc"]:
         main_multiproc()
     else:

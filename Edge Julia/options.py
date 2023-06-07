@@ -14,7 +14,8 @@ OPTIONS = {
     "view_only": False,         # Only view the main mandelbrot
     "save_results": True,       # Save all results as we go
     "add_extra_frames": True,   # Add extra frames to the start and end
-    "draw_julias": True,        # Draw all Julia framesß
+    "draw_julias": True,        # Draw all Julia frames
+    "save_edge": False,         # Draw the edge and save it as a graphics file
     "target_frames": 7000,      # Number of target frames after finding the border size
     "mand_loc": {"size": 11.0, "x": 4.5, "y": 1.5}, # Location of the main Mandelbrot on all Julia images
     "mand_iters": 100,          # Number of iterations for the main Mandelbrot
@@ -31,16 +32,19 @@ OPTIONS = {
 # OPTIONS["save_results"] = False
 # OPTIONS["scan_size"] = 2000
 # OPTIONS["quick_mode"] = True
-# OPTIONS["shrink"] = 32
+# OPTIONS["shrink"] = 4
 # OPTIONS["gui_shrink"] = 1
 # OPTIONS["mand_loc"] = {"size": 5.0, "x": 0.75, "y": 0.0}
 # OPTIONS["show_gui"] = False
 
-if OPTIONS["shrink"] > 1:
-    # If shrink is turned on, shrink down the image size
-    OPTIONS["width"] //= OPTIONS["shrink"]
-    OPTIONS["height"] //= OPTIONS["shrink"]
-    OPTIONS["add_extra_frames"] = False
+if "DRAW_EDGE" in os.environ:
+    OPTIONS["border_iter"] = 3
+    OPTIONS["save_edge"] = True
+    OPTIONS["shrink"] = 4
+    OPTIONS["quick_mode"] = True
+    OPTIONS["gui_shrink"] = 1
+    OPTIONS["mand_loc"] = {"size": 5.0, "x": 0.75, "y": 0.0}
+    OPTIONS["scan_size"] = 2000
 
 if "NO_GUI" in os.environ:
     # Allow an env variable to turn on GUI mode
@@ -55,6 +59,12 @@ if "MULTIPROC" in os.environ or "SYNCMODE" in os.environ:
     if "SYNCMODE" in os.environ:
         OPTIONS["multiproc_sync"] = True
 
+if OPTIONS["shrink"] > 1:
+    # If shrink is turned on, shrink down the image size
+    OPTIONS["width"] //= OPTIONS["shrink"]
+    OPTIONS["height"] //= OPTIONS["shrink"]
+    OPTIONS["add_extra_frames"] = False
+
 def show_flags():
     if "NO_GUI" in os.environ:
         print("NO_GUI option set")
@@ -64,3 +74,5 @@ def show_flags():
         print("SYNCMODE option set")
     if "PROCS" in os.environ:
         print(f"PROCS option set to {os.environ['PROCS']}")
+    if "DRAW_EDGE" in os.environ:
+        print("DRAW_EDGE option set")

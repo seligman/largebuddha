@@ -20,18 +20,42 @@ import subprocess
 import time
 import mandelbrot_native_helper
 
-def gui_to_mand(pt_x, pt_y, xo=0, yo=0, alias=1, center_x=OPTIONS["mand_loc"]["x"], center_y=OPTIONS["mand_loc"]["y"], size=OPTIONS["mand_loc"]["size"]):
+_height = None
+_width = None
+_show_gui = None
+_mand_loc_x = None
+_mand_loc_y = None
+_mand_loc_size = None
+_gui_shrink = None
+def reload_options():
+    global _width
+    _width = OPTIONS["width"]
+    global _height
+    _height = OPTIONS["height"]
+    global _show_gui
+    _show_gui = OPTIONS["show_gui"]
+    global _gui_shrink
+    _gui_shrink = OPTIONS["gui_shrink"]
+    global _mand_loc_x
+    _mand_loc_x = OPTIONS["mand_loc"]["x"]
+    global _mand_loc_y
+    _mand_loc_y = OPTIONS["mand_loc"]["y"]
+    global _mand_loc_size
+    _mand_loc_size = OPTIONS["mand_loc"]["size"]
+reload_options()
+
+def gui_to_mand(pt_x, pt_y, xo=0, yo=0, alias=1, center_x=_mand_loc_x, center_y=_mand_loc_y, size=_mand_loc_size):
     # Helper to turn a point on screen to an absolute point inside the mandelbrot
-    x = (((pt_x + max(0, (OPTIONS['height'] - OPTIONS['width']) / 2)) + xo / alias) / max(OPTIONS['width'], OPTIONS['height'])) * size - ((size / 2) + center_x)
-    y = (((pt_y + max(0, (OPTIONS['width'] - OPTIONS['height']) / 2)) + yo / alias) / max(OPTIONS['width'], OPTIONS['height'])) * size - ((size / 2) + center_y)
+    x = (((pt_x + max(0, (_height - _width) / 2)) + xo / alias) / max(_width, _height)) * size - ((size / 2) + center_x)
+    y = (((pt_y + max(0, (_width - _height) / 2)) + yo / alias) / max(_width, _height)) * size - ((size / 2) + center_y)
     return x, y
 
 def mand_to_gui(x, y):
     # Helper to turn a point along the Mandelbrot to a GUI image, opposite of gui_to_mand
-    center_x, center_y, size = OPTIONS["mand_loc"]["x"], OPTIONS["mand_loc"]["y"], OPTIONS["mand_loc"]["size"]
+    center_x, center_y, size = _mand_loc_x, _mand_loc_y, _mand_loc_size
     xo, yo, alias = 0, 0, 1
-    result_x = ((max(OPTIONS['width'], OPTIONS['height']) * (2 * center_x + size + 2 * (x + xo / alias))) / (2 * size)) - (max(0, (OPTIONS['height'] - OPTIONS['width']) / 2))
-    result_y = ((max(OPTIONS['width'], OPTIONS['height']) * (2 * center_y + size + 2 * (y + yo / alias))) / (2 * size)) - (max(0, (OPTIONS['width'] - OPTIONS['height']) / 2))
+    result_x = ((max(_width, _height) * (2 * center_x + size + 2 * (x + xo / alias))) / (2 * size)) - (max(0, (_height - _width) / 2))
+    result_y = ((max(_width, _height) * (2 * center_y + size + 2 * (y + yo / alias))) / (2 * size)) - (max(0, (_width - _height) / 2))
     return result_x, result_y
 
 def draw_mand(alias, size, center_x, center_y, julia=None, max_iters=50, max_skip=0):
@@ -51,8 +75,8 @@ def draw_mand(alias, size, center_x, center_y, julia=None, max_iters=50, max_ski
             break
         yield {"type": "msg", "msg": f"Working on pass {skip}...", "info": True}
 
-        for pt_y in range(0, OPTIONS['height'], skip):
-            for pt_x in range(0, OPTIONS['width'], skip):
+        for pt_y in range(0, _height, skip):
+            for pt_x in range(0, _width, skip):
                 if (pt_x, pt_y) not in done:
                     done.add((pt_x, pt_y))
 
@@ -116,8 +140,8 @@ def draw_mand(alias, size, center_x, center_y, julia=None, max_iters=50, max_ski
 def fill_pool(state):
     # State machine to show the "pool", mostly just used for some simple debugging
     yield {"type": "msg", "msg": "Finding Pool"}
-    for y in range(OPTIONS['height']):
-        for x in range(OPTIONS['width']):
+    for y in range(_height):
+        for x in range(_width):
             if (x, y) in state.pool:
                 rgb = state.pool[(x, y)]
                 rgb = [
@@ -294,7 +318,11 @@ class MandelEngine:
         
         return False
 
-def find_edge():
+def show_msg(value):
+    # Simple helper to show a message with a timestamp
+    print(datetime.utcnow().strftime("%d %H:%M:%S: ") + value)
+
+def find_edge(show_msg=show_msg):
     # State machine to find the border of the mandelbrot, does so by a simple A* scan around the border
     yield {"type": "msg", "msg": "Filling Edge"}
     pixel = OPTIONS["scan_size"]
@@ -353,10 +381,11 @@ def find_edge():
                 # We hit the end point, so we're all done!
                 break
 
-        if OPTIONS["show_gui"]:
+        if _show_gui:
             if time.time() >= at:
                 yield {"type": "msg", "msg": f"Border, working, at {cost:,}, {attempts:,} attempts, {len(todo):,} queue size, {len(final_trail):,} total frames"}
-                yield {"type": "show_loc", "status": "show", "x": x / pixel, "y": y / pixel}
+                if not OPTIONS["save_edge"]:
+                    yield {"type": "show_loc", "status": "show", "x": x / pixel, "y": y / pixel}
                 at = time.time() + 0.5
         else:
             if time.time() >= at:
@@ -383,8 +412,9 @@ def find_edge():
                     # Ok, this point is possibly part of a path, go ahead and add it to our queue
                     heapq.heappush(todo, (cost + 1, ox, oy, (cost, x, y, history)))
 
-    if OPTIONS["show_gui"]:
-        yield {"type": "show_loc", "status": "hide"}
+    if _show_gui:
+        if not OPTIONS["save_edge"]:
+            yield {"type": "show_loc", "status": "hide"}
     if final_trail is None:
         raise Exception("Unable to find path to connect the start and end!")
 
@@ -416,21 +446,30 @@ def find_edge():
     final_trail.append(final_trail[0])
     show_msg(f"Found trail of {len(final_trail):,} items")
 
-    # Animate the trail that we found, just to give some idea if it did the right thing
-    skip = max(1, len(final_trail) // 250)
-    for i, (x, y) in enumerate(final_trail):
-        yield {
-            "type": "draw_edge",
-            "x": x / pixel,
-            "y": y / pixel,
-            "rgb": (255, 255, 255),
-            "first": i == 0,
-            "last": i == (len(final_trail) - 1),
-        }
-        if i % skip == 0:
-            yield {"type": "animate"}
+    if OPTIONS["save_edge"]:
+        for x, y in final_trail:
+            yield {
+                "type": "save_edge_point",
+                "x": x / pixel,
+                "y": y / pixel,
+            }
+        yield {"type": "save_edge_frame"}
+    else:
+        # Animate the trail that we found, just to give some idea if it did the right thing
+        skip = max(1, len(final_trail) // 250)
+        for i, (x, y) in enumerate(final_trail):
+            yield {
+                "type": "draw_edge",
+                "x": x / pixel,
+                "y": y / pixel,
+                "rgb": (255, 255, 255),
+                "first": i == 0,
+                "last": i == (len(final_trail) - 1),
+            }
+            if i % skip == 0:
+                yield {"type": "animate"}
 
-    yield {"type": "msg", "msg": "Done With Edge"}
+        yield {"type": "msg", "msg": "Done With Edge"}
     yield None
 
 def save_frame(fn):
@@ -447,10 +486,6 @@ def set_target(x, y):
     # State machine to note a specific point of which point we're using for the Julia
     yield {"type": "set_target", "x": x, "y": y}
     yield None
-
-def show_msg(value):
-    # Simple helper to show a message with a timestamp
-    print(datetime.utcnow().strftime("%d %H:%M:%S: ") + value)
 
 def multiproc_worker(row):
     # This is the main worker for a process being called from multiproc mode
@@ -564,10 +599,10 @@ def handle_draw_mand(state, job, show_msg=show_msg):
     # And light up the pixels we were told about
     for xo in range(job['skip']):
         for yo in range(job['skip']):
-            if job['x'] + xo < OPTIONS["width"] and job['y'] + yo < OPTIONS["height"]:
+            if job['x'] + xo < _width and job['y'] + yo < _height:
                 state.pixels[job['y'] + yo, job['x'] + xo] = job['rgb']
-                if OPTIONS["show_gui"]:
-                    state.screen.set_at(((job['x'] + xo) // OPTIONS["gui_shrink"], (job['y'] + yo) // OPTIONS["gui_shrink"]), job['rgb'])
+                if _show_gui:
+                    state.screen.set_at(((job['x'] + xo) // _gui_shrink, (job['y'] + yo) // _gui_shrink), job['rgb'])
 
 def handle_dupe_frame(state, job, show_msg=show_msg):
     # Handle a dupe frame event, just copy the image
@@ -587,12 +622,12 @@ def handle_save_frame(state, job, show_msg=show_msg):
                 rgb[0] = int(rgb[0] * alpha + state.pixels[y, x, 0] * (1 - alpha))
                 rgb[1] = int(rgb[1] * alpha + state.pixels[y, x, 1] * (1 - alpha))
                 rgb[2] = int(rgb[2] * alpha + state.pixels[y, x, 2] * (1 - alpha))
-                if OPTIONS["show_gui"]:
-                    state.screen.set_at((x // OPTIONS["gui_shrink"], y // OPTIONS["gui_shrink"]), rgb)
+                if _show_gui:
+                    state.screen.set_at((x // _gui_shrink, y // _gui_shrink), rgb)
                 state.pixels[y, x] = rgb
 
     # Draw the cross hairs and circle where the Julia is pulling its point from
-    size_outer = int(OPTIONS['width'] / 125)
+    size_outer = int(_width / 125)
     size_inner = size_outer * 0.85
     size_hairs = size_outer * 0.05
     pt_x, pt_y = mand_to_gui(state.target['x'], state.target['y'])
@@ -618,16 +653,13 @@ def handle_save_frame(state, job, show_msg=show_msg):
                     int((rgb * alpha) + (state.pixels[pt_y + y, pt_x + x, 1] * (1 - alpha))),
                     int((rgb * alpha) + (state.pixels[pt_y + y, pt_x + x, 2] * (1 - alpha))),
                 ]
-                if OPTIONS["show_gui"]:
-                    state.screen.set_at(((pt_x + x) // OPTIONS["gui_shrink"], (pt_y + y) // OPTIONS["gui_shrink"]), rgb)
+                if _show_gui:
+                    state.screen.set_at(((pt_x + x) // _gui_shrink, (pt_y + y) // _gui_shrink), rgb)
                 state.pixels[pt_y + y, pt_x + x] = rgb
 
     # All done, save out the PNG file
     if OPTIONS["save_results"]:
-        im = Image.new('RGB', (OPTIONS['width'], OPTIONS['height']), (0, 0, 0))
-        for x in range(OPTIONS['width']):
-            for y in range(OPTIONS['height']):
-                im.putpixel((x, y), tuple(state.pixels[y, x]))
+        im = Image.fromarray(state.pixels)
         im.save(job['fn'])
         im.close()
     show_msg(f"Saved {job['fn']}")
@@ -635,6 +667,60 @@ def handle_save_frame(state, job, show_msg=show_msg):
 def handle_set_target(state, job, show_msg=show_msg):
     # Helper to note the position of the Julia set
     state.target = job
+
+def handle_save_edge_point(state, job, show_msg=show_msg):
+    if state.extra is None:
+        scale = 2
+        state.extra = [
+            np.zeros((_height * scale, _width * scale), dtype=np.uint8),
+            np.zeros((_height * scale, _width * scale), dtype=np.uint8),
+            set(),
+            scale,
+        ]
+    border_1, border_2, seen, scale = state.extra
+
+    pt_x, pt_y = mand_to_gui(job['x'], job['y'])
+    pt_x, pt_y = int(pt_x * scale), int(pt_y * scale)
+
+    if (pt_x, pt_y) not in seen:
+        seen.add((pt_x, pt_y))
+
+        size = 4
+        for xo in range(-size, size+1):
+            for yo in range(-size, size+1):
+                if xo*xo+yo*yo <= size*size:
+                    border_1[pt_y + yo, pt_x + xo] = 1
+                    if _show_gui:
+                        state.screen.set_at(((pt_x + xo) // (_gui_shrink * scale), (pt_y + yo) // (_gui_shrink * scale)), (255, 0, 0))
+
+        size = 2
+        for xo in range(-size, size+1):
+            for yo in range(-size, size+1):
+                if xo*xo+yo*yo <= size*size:
+                    border_2[pt_y + yo, pt_x + xo] = 1
+
+def handle_save_edge_frame(state, job, show_msg=show_msg):
+    border_1, border_2, seen, scale = state.extra
+    for x in range(_width):
+        for y in range(_height):
+            total_1, total_2 = 0, 0
+            for xo in range(scale):
+                for yo in range(scale):
+                    if border_2[y * scale + yo, x * scale + xo] > 0:
+                        total_2 += 1
+                    elif border_1[y * scale + yo, x * scale + xo] > 0:
+                        total_1 += 1
+            if (total_1 + total_2) > 0:
+                total_1 /= scale * scale
+                total_2 /= scale * scale
+                state.pixels[y, x] = (
+                    int(state.pixels[y, x, 0] * (1 - (total_1 + total_2)) + (255 * total_2) + (32 * total_1)),
+                    int(state.pixels[y, x, 1] * (1 - (total_1 + total_2)) + (64 * total_2) + (32 * total_1)),
+                    int(state.pixels[y, x, 2] * (1 - (total_1 + total_2)) + (64 * total_2) + (32 * total_1)),
+                )
+    im = Image.fromarray(state.pixels)
+    im.save(job.get("fn", "edge.png"))
+    im.close()
 
 class State:
     # State information for our main worker, useful to pass the current GUI information, along
@@ -644,37 +730,39 @@ class State:
         self.preview = []
         self.pixels = np.zeros(
             (
-                OPTIONS['height'], 
-                OPTIONS['width'], 
+                _height, 
+                _width, 
                 3
             ), 
             dtype=np.uint8,
         )
         self.target = None
         self.screen = None
+        self.extra = None
+
+def append_mand(engines):
+    engines.append(draw_mand(
+        alias=1 if OPTIONS["quick_mode"] else 2, 
+        size=_mand_loc_size, 
+        center_x=_mand_loc_x, 
+        center_y=_mand_loc_y, 
+        max_iters=OPTIONS["mand_iters"],
+    ))
 
 def main():
     # The main worker, mix GUI stuff, but try to keep anything necessary to actually render fractals
     # elsewhere
 
     state = State()
-    if OPTIONS["show_gui"]:
+    if _show_gui:
         # Only setup pygame stuff if the GUI is requested
-        state.screen = pygame.display.set_mode((OPTIONS['width'] // OPTIONS["gui_shrink"], OPTIONS['height'] // OPTIONS["gui_shrink"]))
+        state.screen = pygame.display.set_mode((_width // _gui_shrink, _height // _gui_shrink))
         pygame.display.set_caption('Mandelbrot')
         pygame.display.flip()
         pygame.display.update()
 
     # Kee a list of state machines to work on
     engines = []
-    def append_mand():
-        engines.append(draw_mand(
-            alias=1 if OPTIONS["quick_mode"] else 2, 
-            size=OPTIONS["mand_loc"]["size"], 
-            center_x=OPTIONS["mand_loc"]["x"], 
-            center_y=OPTIONS["mand_loc"]["y"], 
-            max_iters=OPTIONS["mand_iters"],
-        ))
 
     # If we have history from a previous run, pull it in, otherwise 
     # create some starter state machines, they will add others unless
@@ -684,9 +772,10 @@ def main():
             for row in f:
                 add_frame(engines, row)
     else:
-        append_mand()
+        append_mand(engines)
         if not OPTIONS["view_only"]:
-            engines.append(fill_pool(state))
+            if not OPTIONS["save_edge"]:
+                engines.append(fill_pool(state))
             engines.append(find_edge())
 
     running = True
@@ -695,7 +784,7 @@ def main():
     pointer = {}
 
     while running:
-        if OPTIONS["show_gui"]:
+        if _show_gui:
             # Handle the GUI events
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -733,6 +822,7 @@ def main():
                     
                     if mand_changed:
                         # The position changed, drop a new state machine in place to render it
+                        reload_options()
                         engines = []
                         append_mand()
                         print('    "mand_loc": ' + json.dumps(OPTIONS["mand_loc"]) + ",")
@@ -746,7 +836,7 @@ def main():
         if len(engines) > 0:
             # After some period of time, stop working the state machines to give the GUI a chance to update
             work_period = time.time() + (0.1 if OPTIONS["view_only"] else 0.25)
-            while ((OPTIONS["show_gui"] and time.time() < work_period) or (not OPTIONS["show_gui"])) and len(engines) > 0:
+            while ((_show_gui and time.time() < work_period) or (not _show_gui)) and len(engines) > 0:
                 # Call into the state machine, it'll return something if state needs updating, otherwise
                 # when it's done, it'll just return None, which means we can move on to the next state machine
                 job = next(engines[0])
@@ -762,19 +852,19 @@ def main():
                     handle_save_frame(state, job)
                 elif job['type'] == 'msg':
                     # A simple message, either update the caption if we have on, or just dump to stdout
-                    if OPTIONS["show_gui"]:
+                    if _show_gui:
                         pygame.display.set_caption(job['msg'])
                     else:
                         if not job.get("info", False):
                             show_msg(job['msg'])
                 elif job['type'] == 'draw_pool':
                     # Draw the pool in GUI mode, otherwise, ditch this data
-                    if OPTIONS["show_gui"]:
-                        state.screen.set_at((job['x'] // OPTIONS["gui_shrink"], job['y'] // OPTIONS["gui_shrink"]), job['rgb'])
+                    if _show_gui:
+                        state.screen.set_at((job['x'] // _gui_shrink, job['y'] // _gui_shrink), job['rgb'])
                 elif job['type'] == "show_loc":
                     # Little helper to draw a "location" when finding the edge
                     for (x, y), rgb in pointer.items():
-                        state.screen.set_at((x // OPTIONS["gui_shrink"], y // OPTIONS["gui_shrink"]), rgb)
+                        state.screen.set_at((x // _gui_shrink, y // _gui_shrink), rgb)
                     pointer.clear()
 
                     if job['status'] == 'show':
@@ -786,18 +876,22 @@ def main():
                                 if xo*xo+yo*yo <= size*size:
                                     if (pt_x + xo, pt_y + yo) not in pointer:
                                         pointer[(pt_x + xo, pt_y + yo)] = state.pixels[pt_y + yo, pt_x + xo]
-                                        state.screen.set_at(((pt_x + xo) // OPTIONS["gui_shrink"], (pt_y + yo) // OPTIONS["gui_shrink"]), (255, 64, 64))
+                                        state.screen.set_at(((pt_x + xo) // _gui_shrink, (pt_y + yo) // _gui_shrink), (255, 64, 64))
+                elif job['type'] == "save_edge_point":
+                    handle_save_edge_point(state, job)
+                elif job['type'] == "save_edge_frame":
+                    handle_save_edge_frame(state, job)
                 elif job['type'] == 'draw_edge':
                     # Draw the edge that we plan to animate
                     # The first time it's called, dump out that edge to disk
-                    if OPTIONS["show_gui"]:
+                    if _show_gui:
                         size = 4
                         pt_x, pt_y = mand_to_gui(job['x'], job['y'])
                         pt_x, pt_y = int(pt_x), int(pt_y)
                         for xo in range(-size, size+1):
                             for yo in range(-size, size+1):
                                 if xo*xo+yo*yo <= size*size:
-                                    state.screen.set_at(((pt_x + xo) // OPTIONS["gui_shrink"], (pt_y + yo) // OPTIONS["gui_shrink"]), job['rgb'])
+                                    state.screen.set_at(((pt_x + xo) // _gui_shrink, (pt_y + yo) // _gui_shrink), job['rgb'])
                     if show_border == 0 and OPTIONS["save_results"]:
                         with open("frame_preview.jsonl", "wt") as f:
                             for row in state.preview:
@@ -846,7 +940,7 @@ def main():
                 elif job['type'] == 'draw_mand':
                     handle_draw_mand(state, job)
 
-            if OPTIONS["show_gui"]:
+            if _show_gui:
                 pygame.display.flip()
                 pygame.display.update()
 

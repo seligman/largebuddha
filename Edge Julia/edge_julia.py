@@ -360,7 +360,17 @@ def find_edge(show_msg=show_msg):
     while True:
         attempts += 1
         cost, x, y, history = heapq.heappop(todo)
-        if (cost >= cost_check and history is not None and len(todo) == 0) or (x, y) == (tx, ty):
+
+        force_cost_check = False
+        if cost >= cost_check and history is not None and len(todo) == 0:
+            force_cost_check = True
+        elif (x, y) == (tx, ty):
+            force_cost_check = True
+        # Temporary hack code to only find part of the edge
+        # elif x <= (-0.35 * pixel):
+        #     force_cost_check = True
+
+        if force_cost_check:
             # For the last item, as well as every now and then, add the current trail we have
             # to shrink down memory usage.  This is also where we drop points along the edge
             # so we don't end up rendering millions of items.
@@ -380,6 +390,10 @@ def find_edge(show_msg=show_msg):
             if (x, y) == (tx, ty):
                 # We hit the end point, so we're all done!
                 break
+
+            # Temporary hack code to only find part of the edge
+            # if x <= (-0.35 * pixel):
+            #     break
 
         if _show_gui:
             if time.time() >= at:
@@ -526,11 +540,11 @@ def main_multiproc():
 
     show_msg("Working...")
     jobs, dupes = [], defaultdict(list)
-    with open("frames.jsonl") as f:
+    with open(os.path.join("data", "frames.jsonl")) as f:
         # Pull in work units
         for row in f:
             row = json.loads(row)
-            if not os.path.isfile(row["dest"]):
+            if not os.path.isfile(os.path.join("data", row["dest"])):
                 if "requires" in row:
                     dupes[row["requires"]].append(row)
                 else:
@@ -566,7 +580,7 @@ def add_frame(engines, row):
     # Helper to create the state machine workers for a given frame
     if isinstance(row, str):
         row = json.loads(row)
-    if not os.path.isfile(row["dest"]):
+    if not os.path.isfile(os.path.join("data", row["dest"])):
         if row["cmd"] == "draw":
             engines.append(set_target(**row["set"]))
             engines.append(draw_mand(**row["mand"]))
@@ -607,16 +621,16 @@ def handle_draw_mand(state, job, show_msg=show_msg):
 def handle_dupe_frame(state, job, show_msg=show_msg):
     # Handle a dupe frame event, just copy the image
     show_msg(f"Dupe {job['source']} to {job['dest']}")
-    with open(job['source'], 'rb') as f_source:
-        with open(job['dest'], 'wb') as f_dest:
+    with open(os.path.join("data", job['source']), 'rb') as f_source:
+        with open(os.path.join("data", job['dest']), 'wb') as f_dest:
             f_dest.write(f_source.read())
 
 def handle_save_frame(state, job, show_msg=show_msg):
     # Handle a save frame event
     
     # If the preview file exists, load the data so we can add the Mandelbrot image on top
-    if os.path.isfile("frame_preview.jsonl"):
-        with open("frame_preview.jsonl", "rb") as f:
+    if os.path.isfile(os.path.join("data", "frame_preview.jsonl")):
+        with open(os.path.join("data", "frame_preview.jsonl"), "rb") as f:
             for row in f:
                 alpha, rgb, x, y = json.loads(row)
                 rgb[0] = int(rgb[0] * alpha + state.pixels[y, x, 0] * (1 - alpha))
@@ -660,7 +674,9 @@ def handle_save_frame(state, job, show_msg=show_msg):
     # All done, save out the PNG file
     if OPTIONS["save_results"]:
         im = Image.fromarray(state.pixels)
-        im.save(job['fn'])
+        if not os.path.isdir("data"):
+            os.mkdir("data")
+        im.save(os.path.join("data", job['fn']))
         im.close()
     show_msg(f"Saved {job['fn']}")
 
@@ -719,7 +735,9 @@ def handle_save_edge_frame(state, job, show_msg=show_msg):
                     int(state.pixels[y, x, 2] * (1 - (total_1 + total_2)) + (64 * total_2) + (32 * total_1)),
                 )
     im = Image.fromarray(state.pixels)
-    im.save(job.get("fn", "edge.png"))
+    if not os.path.isdir("data"):
+        os.mkdir("data")
+    im.save(os.path.join("data", job.get("fn", "edge.png")))
     im.close()
 
 class State:
@@ -767,8 +785,8 @@ def main():
     # If we have history from a previous run, pull it in, otherwise 
     # create some starter state machines, they will add others unless
     # we're in View only mode
-    if os.path.isfile("frames.jsonl") and not OPTIONS["view_only"]:
-        with open("frames.jsonl") as f:
+    if os.path.isfile(os.path.join("data", "frames.jsonl")) and not OPTIONS["view_only"]:
+        with open(os.path.join("data", "frames.jsonl")) as f:
             for row in f:
                 add_frame(engines, row)
     else:
@@ -893,7 +911,9 @@ def main():
                                 if xo*xo+yo*yo <= size*size:
                                     state.screen.set_at(((pt_x + xo) // _gui_shrink, (pt_y + yo) // _gui_shrink), job['rgb'])
                     if show_border == 0 and OPTIONS["save_results"]:
-                        with open("frame_preview.jsonl", "wt") as f:
+                        if not os.path.isdir("data"):
+                            os.mkdir("data")
+                        with open(os.path.join("data", "frame_preview.jsonl"), "wt") as f:
                             for row in state.preview:
                                 f.write(json.dumps(row) + "\n")
                     show_border += 1
@@ -917,7 +937,9 @@ def main():
                         if OPTIONS["draw_julias"]:
                             add_frame(engines, row)
                         if OPTIONS["save_results"]:
-                            with open("frames.jsonl", "at") as f:
+                            if not os.path.isdir("data"):
+                                os.mkdir("data")
+                            with open(os.path.join("data", "frames.jsonl"), "at") as f:
                                 f.write(json.dumps(row) + "\n")
 
                         dupes = 0
@@ -935,7 +957,9 @@ def main():
                                 row = {"cmd": "dupe", "source": source_fn, "dest": fn, "requires": source_fn}
                                 add_frame(engines, row)
                                 if OPTIONS["save_results"]:
-                                    with open("frames.jsonl", "at") as f:
+                                    if not os.path.isdir("data"):
+                                        os.mkdir("data")
+                                    with open(os.path.join("data", "frames.jsonl"), "at") as f:
                                         f.write(json.dumps(row) + "\n")
                 elif job['type'] == 'draw_mand':
                     handle_draw_mand(state, job)

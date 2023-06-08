@@ -64,8 +64,8 @@ def draw_mand(alias, size, center_x, center_y, julia=None, max_iters=50, max_ski
     # pass results back to the main caller.  They'll end by returning None before a StopIteration
     # is raised.
 
-    # The main engine to call, in this function, use none of it's cache options
-    worker = MandelEngine(max_iters=max_iters, cache='none')
+    # The main engine to call
+    worker = MandelEngine(max_iters=max_iters)
 
     done = set()
     yield {"type": "msg", "msg": f"Drawing fractal..."}
@@ -162,38 +162,21 @@ def fill_pool(state):
 class MandelEngine:
     # A class that can answer the question for a high-resolution fractal:  
     #       Is this point inside a Mandelbrot set?
-    # It uses two bit-arrays as a cache to keep memory pressure down and never
-    # have to calculate the same pixel twice
-    def __init__(self, max_iters, cache):
+    # It uses a simple cache to store results of the seen check
+    def __init__(self, max_iters):
         self.pixel = OPTIONS["scan_size"]
         self.max_iters = max_iters
         self.escaped_at = None
         self.final_dist = None
         self.cache_bit = False
         self.cache_set = False
-        if cache == 'bits':
-            import bitarray
-            # The in/out are 1/2 size since they're reflected on the x axis, with an extra row for zero
-            self.mand_in = bitarray.bitarray((self.pixel * 2 + 1) * (self.pixel * 4))
-            self.mand_out = bitarray.bitarray((self.pixel * 2 + 1) * (self.pixel * 4))
-            # The seen is full size
-            self.seen = bitarray.bitarray((self.pixel * 4) * (self.pixel * 4))
-            self.mand_in.setall(0)
-            self.mand_out.setall(0)
-            self.seen.setall(0)
-            self.cache_bit = True
-        elif cache == 'set':
-            self.mand = {}
-            self.mand_buffer = deque()
-            self.seen_set = set()
-            self.seen_buffer = deque()
-            self.cache_set = True
-        elif cache == 'none':
-            pass
-        else:
-            raise Exception('Unknown cache mode')
+
+        self.seen_cur = set()
+        self.seen_prev = set()
+        self.seen_cur_size = 0
 
     def calc_mand(self, x, y, julia=None):
+        # Helper to calculate a mandelbrot pixel, does not interact with the cache at all
         if julia is None:
             in_set, self.escaped_at, self.final_dist = mandelbrot_native_helper.calc(x, y, False, 0.0, 0.0, self.max_iters)
         else:
@@ -204,7 +187,7 @@ class MandelEngine:
         # Calculate one point, doesn't use cache, points should be in natural coords
         # Returns True if the point is in the set, False otherwise.  On False
         # self.escaped_at is the escaped iteration, and self.final_dist is the final
-        # escape distance.  Does not cache any result
+        # escape distance.
 
         self.escaped_at = None
         self.final_dist = None
@@ -231,75 +214,26 @@ class MandelEngine:
 
         return True
 
-    def _get_bit(self, bits, x, y):
-        if self.pixel * -3 <= x <= self.pixel * 1:
-            if self.pixel * -2 <= y < self.pixel * 2:
-                return bits[(x + (self.pixel * 3)) + ((y + (self.pixel * 2)) * (self.pixel * 4))] == 1
-        # Out of bound, do nothing
-        return False
-
-    def _set_bits(self, bits, x, y, value):
-        if self.pixel * -3 <= x <= self.pixel * 1:
-            if self.pixel * -2 <= y < self.pixel * 2:
-                # Find the bit to set
-                index, offset = divmod((x + (self.pixel * 3)) + ((y + (self.pixel * 2)) * (self.pixel * 4)), 32)
-                if value:
-                    bits[(x + (self.pixel * 3)) + ((y + (self.pixel * 2)) * (self.pixel * 4))] = 1
-                else:
-                    bits[(x + (self.pixel * 3)) + ((y + (self.pixel * 2)) * (self.pixel * 4))] = 0
-
     def is_in_set(self, x, y):
         # Return True if a point is in the set, False otherwise, expects integer location scaled
         # by self.pixel units
-        # First off, see if it's in either set:
-
-        # Reflect any positive Y value to speed up lookups by forcing cache hits when we mirror things
-        y = -abs(y)
-
-        if self.cache_bit:
-            if self.get_bit(self.mand_in, x, y):
-                return True
-            if self.get_bit(self.mand_out, x, y):
-                return False
-        elif self.cache_set:
-            ret = self.mand.get((x, y), None)
-            if ret is not None:
-                return ret
-
-        # Not cached already, go ahead and calculate the bit:
-        ret = self.calc_mand(x / self.pixel, y / self.pixel)
-
-        # Store the results
-        if self.cache_bit:
-            if ret:
-                self.set_bits(self.mand_in, x, y, True)
-            else:
-                self.set_bits(self.mand_out, x, y, True)
-        elif self.cache_set:
-            self.mand[(x, y)] = ret
-            self.mand_buffer.append((x, y))
-            if len(self.mand_buffer) > 1000:
-                del self.mand[self.mand_buffer.popleft()]
-        
-        return ret
+        return self.calc_mand(x / self.pixel, y / self.pixel)
     
+    def seen_clean(self):
+        # It's safe to remove some history, so do so if we need to
+        if self.seen_cur_size >= 100_000:
+            self.seen_cur, self.seen_prev = set(), self.seen_cur
+            self.seen_cur_size = 0
+
     def has_been_seen(self, x, y):
-        if self.cache_bit:
-            ret = self._get_bit(self.seen, x, y)
-            if ret == 0:
-                self._set_bits(self.seen, x, y, 1)
-            return ret == 1
-        elif self.cache_set:
-            if (x, y) in self.seen_set:
-                return True
-            else:
-                self.seen_set.add((x, y))
-                self.seen_buffer.append((x, y))
-                if len(self.seen_buffer) > 1000000:
-                    self.seen_set.remove(self.seen_buffer.popleft())
-                return False
-        else:
-            raise Exception("No cache")
+        # Returns true if has_been_seen() has been called for a given point before
+        pt = (x + (self.pixel * 3)) + ((y + (self.pixel * 2)) * (self.pixel * 4))
+        if pt in self.seen_cur or pt in self.seen_prev:
+            return True
+
+        # Not in a set, cache it for next time
+        self.seen_cur_size += 1
+        self.seen_cur.add(pt)
 
     def is_border(self, x, y):
         # Return True if this point is a "border", in other words, is not in the set, but touches
@@ -308,12 +242,12 @@ class MandelEngine:
             return False
         
         if self.is_in_set(x - 1, y - 1): return True
-        if self.is_in_set(x, y - 1): return True
         if self.is_in_set(x + 1, y - 1): return True
-        if self.is_in_set(x + 1, y): return True
         if self.is_in_set(x + 1, y + 1): return True
-        if self.is_in_set(x, y + 1): return True
         if self.is_in_set(x - 1, y + 1): return True
+        if self.is_in_set(x, y - 1): return True
+        if self.is_in_set(x + 1, y): return True
+        if self.is_in_set(x, y + 1): return True
         if self.is_in_set(x - 1, y): return True
         
         return False
@@ -322,13 +256,25 @@ def show_msg(value):
     # Simple helper to show a message with a timestamp
     print(datetime.utcnow().strftime("%d %H:%M:%S: ") + value)
 
+def get_border_perc(x, y):
+    # Determine how far along the border we are from a previous run
+    best, best_dist = None, None
+    with open("border_percs.txt", "rt") as f:
+        for row in f:
+            row = row.strip().split(",")
+            dist = math.sqrt(((x - float(row[1])) ** 2) + ((y - float(row[2])) ** 2))
+            if best is None or dist < best_dist:
+                best = float(row[0])
+                best_dist = dist
+    return best
+
 def find_edge(show_msg=show_msg):
     # State machine to find the border of the mandelbrot, does so by a simple A* scan around the border
     yield {"type": "msg", "msg": "Filling Edge"}
     pixel = OPTIONS["scan_size"]
 
     show_msg("Starting scan for border")
-    bits = MandelEngine(max_iters=OPTIONS["border_iter"], cache='set')
+    bits = MandelEngine(max_iters=OPTIONS["border_iter"])
 
     # Start scanning in the center of the Mandelbrot
     x, y = 0, 0
@@ -351,18 +297,18 @@ def find_edge(show_msg=show_msg):
     # A priority queue to keep searching the "cheapest route"
     todo = []
     heapq.heappush(todo, (0, x, y, None))
+    todo_len = 1
 
     # Dump out some message every now and then for the GUI mode
     at = time.time() + 0.5
-    attempts = 0
     cost_check = 0
 
     while True:
-        attempts += 1
         cost, x, y, history = heapq.heappop(todo)
+        todo_len -= 1
 
         force_cost_check = False
-        if cost >= cost_check and history is not None and len(todo) == 0:
+        if cost >= cost_check and history is not None and todo_len == 0:
             force_cost_check = True
         elif (x, y) == (tx, ty):
             force_cost_check = True
@@ -371,6 +317,10 @@ def find_edge(show_msg=show_msg):
         #     force_cost_check = True
 
         if force_cost_check:
+            # We're on the only path, so it's safe to remove some extended history
+            # if the buffer is starting to get too large, so call in our helper
+            if todo_len == 0:
+                bits.seen_clean()
             # For the last item, as well as every now and then, add the current trail we have
             # to shrink down memory usage.  This is also where we drop points along the edge
             # so we don't end up rendering millions of items.
@@ -397,13 +347,15 @@ def find_edge(show_msg=show_msg):
 
         if _show_gui:
             if time.time() >= at:
-                yield {"type": "msg", "msg": f"Border, working, at {cost:,}, {attempts:,} attempts, {len(todo):,} queue size, {len(final_trail):,} total frames"}
+                perc = get_border_perc(x / pixel, y / pixel)
+                yield {"type": "msg", "msg": f"Border, {perc:0.2f}% at {cost:,}, {todo_len:,} queue size, {bits.seen_cur_size:,} cache, {len(final_trail):,} total frames"}
                 if not OPTIONS["save_edge"]:
                     yield {"type": "show_loc", "status": "show", "x": x / pixel, "y": y / pixel}
                 at = time.time() + 0.5
         else:
             if time.time() >= at:
-                show_msg(f"Border: Cost: {cost:,}, Frames: {len(final_trail):,}, Loc: {x/pixel:0.4f} x {y/pixel:0.4f}")
+                perc = get_border_perc(x / pixel, y / pixel)
+                show_msg(f"Border: {perc:0.2f}%, C: {cost:.2e}, F: {len(final_trail):,}, Q: {todo_len:3,}, C: {bits.seen_cur_size:9,}, @: {x/pixel:0.4f} x {y/pixel:0.4f}")
                 at = time.time() + 60
 
         # Check all the touching points of this
@@ -425,6 +377,7 @@ def find_edge(show_msg=show_msg):
                 if bits.is_border(ox, oy):
                     # Ok, this point is possibly part of a path, go ahead and add it to our queue
                     heapq.heappush(todo, (cost + 1, ox, oy, (cost, x, y, history)))
+                    todo_len += 1
 
     if _show_gui:
         if not OPTIONS["save_edge"]:
@@ -434,6 +387,24 @@ def find_edge(show_msg=show_msg):
 
     # Now get the list of all points in our little data objects to build a simple list
     final_trail = [x for x in final_trail]
+
+    # Hacky code to dump out the positions for percentages purposes
+    # total_dist = 0
+    # last_pt = None
+    # temp = []
+    # for x, y in final_trail:
+    #     if last_pt is not None:
+    #         total_dist += math.sqrt(((x - last_pt[0]) ** 2) + ((y - last_pt[1]) ** 2))
+    #     temp.append((total_dist, x / pixel, y / pixel))
+    #     last_pt = (x, y)
+    # with open("border_percs.txt", "wt", newline="") as f:
+    #     perc_at = 0
+    #     for dist, x, y in temp:
+    #         perc = int((dist / total_dist) * 10000)
+    #         if perc >= perc_at:
+    #             f.write(f"{perc / 100},{x},{y}\n")
+    #             perc_at += 1
+    # exit(0)
 
     # dump = []
     # with open("dump.jsonl", "rt") as f:
@@ -785,7 +756,7 @@ def main():
     # If we have history from a previous run, pull it in, otherwise 
     # create some starter state machines, they will add others unless
     # we're in View only mode
-    if os.path.isfile(os.path.join("data", "frames.jsonl")) and not OPTIONS["view_only"]:
+    if os.path.isfile(os.path.join("data", "frames.jsonl")) and not OPTIONS["view_only"] and OPTIONS["save_results"]:
         with open(os.path.join("data", "frames.jsonl")) as f:
             for row in f:
                 add_frame(engines, row)

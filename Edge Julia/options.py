@@ -20,9 +20,9 @@ OPTIONS = {
     "mand_loc": {"size": 11.0, "x": 4.5, "y": 1.5}, # Location of the main Mandelbrot on all Julia images
     "mand_iters": 100,          # Number of iterations for the main Mandelbrot
     "julia_iters": 500,         # Number of iterations for each Julia set
-    "border_iter": 30,          # Number of iterations when searching for the border points
+    "border_iter": 100,         # Number of iterations when searching for the border points
     "shrink": 1,                # Number to divide all width/height calls by
-    "scan_size": 100_000,       # Number of points per unit when searching for the border
+    "scan_size": 1_000_000,     # Number of points per unit when searching for the border
     "frame_spacing": 0.004      # Spacing, in Mandelbrot coords, between frames along the edge
 }
 
@@ -30,7 +30,7 @@ OPTIONS = {
 # OPTIONS["view_only"] = True
 # OPTIONS["draw_julias"] = False
 # OPTIONS["save_results"] = False
-# OPTIONS["scan_size"] = 2000
+# OPTIONS["scan_size"] = 2_000
 # OPTIONS["quick_mode"] = True
 # OPTIONS["shrink"] = 4
 # OPTIONS["gui_shrink"] = 1

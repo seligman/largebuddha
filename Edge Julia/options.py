@@ -16,14 +16,13 @@ OPTIONS = {
     "add_extra_frames": True,   # Add extra frames to the start and end
     "draw_julias": True,        # Draw all Julia frames
     "save_edge": False,         # Draw the edge and save it as a graphics file
-    "target_frames": 7000,      # Number of target frames after finding the border size
     "mand_loc": {"size": 11.0, "x": 4.5, "y": 1.5}, # Location of the main Mandelbrot on all Julia images
     "mand_iters": 100,          # Number of iterations for the main Mandelbrot
-    "julia_iters": 500,         # Number of iterations for each Julia set
-    "border_iter": 100,         # Number of iterations when searching for the border points
+    "julia_iters": 2_000,       # Number of iterations for each Julia set
+    "border_iter": 1000,        # Number of iterations when searching for the border points
     "shrink": 1,                # Number to divide all width/height calls by
-    "scan_size": 1_000_000,     # Number of points per unit when searching for the border
-    "frame_spacing": 0.004      # Spacing, in Mandelbrot coords, between frames along the edge
+    "scan_size": 100_000,       # Number of points per unit when searching for the border
+    "frame_spacing": 0.001      # Spacing, in Mandelbrot coords, between frames along the edge
 }
 
 # Some debug options to turn on easily

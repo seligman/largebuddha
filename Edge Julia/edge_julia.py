@@ -19,6 +19,7 @@ import math
 import subprocess
 import time
 import mandelbrot_native_helper
+import pickle
 
 _height = None
 _width = None
@@ -239,18 +240,18 @@ class MandelEngine:
         # Return True if this point is a "border", in other words, is not in the set, but touches
         # at least on pixel that is in the set.  Uses self.pixel integer units
         if self.is_in_set(x, y):
-            return False
+            return False, 0, 0
         
-        if self.is_in_set(x - 1, y - 1): return True
-        if self.is_in_set(x + 1, y - 1): return True
-        if self.is_in_set(x + 1, y + 1): return True
-        if self.is_in_set(x - 1, y + 1): return True
-        if self.is_in_set(x, y - 1): return True
-        if self.is_in_set(x + 1, y): return True
-        if self.is_in_set(x, y + 1): return True
-        if self.is_in_set(x - 1, y): return True
+        if self.is_in_set(x - 1, y - 1): return True, -1, -1
+        if self.is_in_set(x + 1, y - 1): return True, 1, -1
+        if self.is_in_set(x + 1, y + 1): return True, 1, 1
+        if self.is_in_set(x - 1, y + 1): return True, -1, 1
+        if self.is_in_set(x, y - 1): return True, 0, -1
+        if self.is_in_set(x + 1, y): return True, 1, 0
+        if self.is_in_set(x, y + 1): return True, 0, 1
+        if self.is_in_set(x - 1, y): return True, -1, 0
         
-        return False
+        return False, 0, 0
 
 def show_msg(value):
     # Simple helper to show a message with a timestamp
@@ -273,19 +274,31 @@ def find_edge(show_msg=show_msg):
     yield {"type": "msg", "msg": "Filling Edge"}
     pixel = OPTIONS["scan_size"]
 
+    # Figure out all the possible extra digits we can use for precision before
+    # the double type no longer has any fraction bits left
+    extra_pixels = [1]
+    temp = pixel
+    while True:
+        temp *= 10
+        if (4.0 + (1 / temp)) - (4.0) > 0:
+            extra_pixels.insert(0, extra_pixels[0] * 10)
+        else:
+            break
+
     show_msg("Starting scan for border")
     bits = MandelEngine(max_iters=OPTIONS["border_iter"])
 
     # Start scanning in the center of the Mandelbrot
     x, y = 0, 0
-    while not bits.is_border(x + 1, y):
-        x += 1
-    while bits.is_border(x + 1, y):
+    while True:
+        is_border, add_x, add_y = bits.is_border(x, y)
+        if is_border:
+            break
         x += 1
 
     # Make sure the target final point is actually a border unit
-    tx, ty = x, y - 1
-    if not bits.is_border(tx, ty):
+    tx, ty = x, y
+    if not bits.is_border(tx, ty)[0]:
         raise Exception("The start and end don't connect!")
 
     # An A* algo to find the border along the mand
@@ -296,7 +309,7 @@ def find_edge(show_msg=show_msg):
 
     # A priority queue to keep searching the "cheapest route"
     todo = []
-    heapq.heappush(todo, (0, x, y, None))
+    heapq.heappush(todo, (0, x, y, add_x, add_y, None))
     todo_len = 1
 
     # Dump out some message every now and then for the GUI mode
@@ -304,16 +317,16 @@ def find_edge(show_msg=show_msg):
     cost_check = 0
 
     while True:
-        cost, x, y, history = heapq.heappop(todo)
+        cost, x, y, add_x, add_y, history = heapq.heappop(todo)
         todo_len -= 1
 
         force_cost_check = False
         if cost >= cost_check and history is not None and todo_len == 0:
             force_cost_check = True
-        elif (x, y) == (tx, ty):
+        elif cost >= 100 and (x, y) == (tx, ty):
             force_cost_check = True
         # Temporary hack code to only find part of the edge
-        # elif x <= (-0.35 * pixel):
+        # elif cost >= 100 and x <= (-0.35 * pixel):
         #     force_cost_check = True
 
         if force_cost_check:
@@ -328,8 +341,8 @@ def find_edge(show_msg=show_msg):
             temp = deque()
             # Invert the queue, and pop out the item we care about
             while history is not None:
-                temp.append((history[1], history[2]))
-                history = history[3]
+                temp.append(history[1:5])
+                history = history[5]
             # Place the inverted queue on our final queue
             while len(temp):
                 cur = temp.pop()
@@ -340,6 +353,10 @@ def find_edge(show_msg=show_msg):
             if (x, y) == (tx, ty):
                 # We hit the end point, so we're all done!
                 break
+
+            # Temporary hack to limit the output based on the number of frames
+            # if len(final_trail) >= 10:
+            #     break
 
             # Temporary hack code to only find part of the edge
             # if x <= (-0.35 * pixel):
@@ -355,7 +372,7 @@ def find_edge(show_msg=show_msg):
         else:
             if time.time() >= at:
                 perc = get_border_perc(x / pixel, y / pixel)
-                show_msg(f"Border: {perc:0.2f}%, C: {cost:.2e}, F: {len(final_trail):,}, Q: {todo_len:3,}, C: {bits.seen_cur_size:9,}, @: {x/pixel:0.4f} x {y/pixel:0.4f}")
+                show_msg(f"Border: {perc:0.2f}%, $ {cost:.2e}, F {len(final_trail):,}, Q {todo_len:3,}, C {bits.seen_cur_size:9,}, @ {x/pixel:0.4f} x {y/pixel:0.4f}")
                 at = time.time() + 60
 
         # Check all the touching points of this
@@ -374,9 +391,10 @@ def find_edge(show_msg=show_msg):
                     skip = True
 
             if not skip:
-                if bits.is_border(ox, oy):
+                is_border, new_add_x, new_add_y = bits.is_border(ox, oy)
+                if is_border:
                     # Ok, this point is possibly part of a path, go ahead and add it to our queue
-                    heapq.heappush(todo, (cost + 1, ox, oy, (cost, x, y, history)))
+                    heapq.heappush(todo, (cost + 1, ox, oy, new_add_x, new_add_y, (cost, x, y, add_x, add_y, history)))
                     todo_len += 1
 
     if _show_gui:
@@ -431,22 +449,44 @@ def find_edge(show_msg=show_msg):
     final_trail.append(final_trail[0])
     show_msg(f"Found trail of {len(final_trail):,} items")
 
+    # Run through each of the final points and get as close as we can
+    # to entering the set
+    precise_trail = []
+    new_pixel = extra_pixels[0] * pixel * 10
+    for i, (x, y, add_x, add_y) in enumerate(final_trail):
+        x *= extra_pixels[0] * 10
+        y *= extra_pixels[0] * 10
+        add = extra_pixels[0] * 10
+        for add in extra_pixels:
+            while not bits.calc_mand((x + (add * add_x)) / new_pixel, (y + (add * add_y)) / new_pixel):
+                x += add * add_x
+                y += add * add_y
+        precise_trail.append((x / new_pixel, y / new_pixel))
+        if _show_gui:
+            if time.time() >= at:
+                yield {"type": "msg", "msg": f"Cleaning up pixels, {i / len(final_trail) * 100:.2f}%"}
+                at = time.time() + 0.5
+        else:
+            if time.time() >= at:
+                show_msg(f"Cleaning up pixels, {i / len(final_trail) * 100:.2f}%")
+                at = time.time() + 15
+
     if OPTIONS["save_edge"]:
-        for x, y in final_trail:
+        for x, y in precise_trail:
             yield {
                 "type": "save_edge_point",
-                "x": x / pixel,
-                "y": y / pixel,
+                "x": x,
+                "y": y,
             }
         yield {"type": "save_edge_frame"}
     else:
         # Animate the trail that we found, just to give some idea if it did the right thing
-        skip = max(1, len(final_trail) // 250)
-        for i, (x, y) in enumerate(final_trail):
+        skip = max(1, len(precise_trail) // 250)
+        for i, (x, y) in enumerate(precise_trail):
             yield {
                 "type": "draw_edge",
-                "x": x / pixel,
-                "y": y / pixel,
+                "x": x,
+                "y": y,
                 "rgb": (255, 255, 255),
                 "first": i == 0,
                 "last": i == (len(final_trail) - 1),
@@ -455,6 +495,7 @@ def find_edge(show_msg=show_msg):
                 yield {"type": "animate"}
 
         yield {"type": "msg", "msg": "Done With Edge"}
+
     yield None
 
 def save_frame(fn):
@@ -600,10 +641,9 @@ def handle_save_frame(state, job, show_msg=show_msg):
     # Handle a save frame event
     
     # If the preview file exists, load the data so we can add the Mandelbrot image on top
-    if os.path.isfile(os.path.join("data", "frame_preview.jsonl")):
-        with open(os.path.join("data", "frame_preview.jsonl"), "rb") as f:
-            for row in f:
-                alpha, rgb, x, y = json.loads(row)
+    if os.path.isfile(os.path.join("data", "frame_preview.dat")):
+        with open(os.path.join("data", "frame_preview.dat"), "rb") as f:
+            for alpha, rgb, x, y in pickle.load(f):
                 rgb[0] = int(rgb[0] * alpha + state.pixels[y, x, 0] * (1 - alpha))
                 rgb[1] = int(rgb[1] * alpha + state.pixels[y, x, 1] * (1 - alpha))
                 rgb[2] = int(rgb[2] * alpha + state.pixels[y, x, 2] * (1 - alpha))
@@ -884,9 +924,8 @@ def main():
                     if show_border == 0 and OPTIONS["save_results"]:
                         if not os.path.isdir("data"):
                             os.mkdir("data")
-                        with open(os.path.join("data", "frame_preview.jsonl"), "wt") as f:
-                            for row in state.preview:
-                                f.write(json.dumps(row) + "\n")
+                        with open(os.path.join("data", "frame_preview.dat"), "wb") as f:
+                            pickle.dump(state.preview, f)
                     show_border += 1
                     if show_border % 10 == 1 or True:
                         args_mand = {

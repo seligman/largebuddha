@@ -274,202 +274,210 @@ def find_edge(show_msg=show_msg):
     yield {"type": "msg", "msg": "Filling Edge"}
     pixel = OPTIONS["scan_size"]
 
-    # Figure out all the possible extra digits we can use for precision before
-    # the double type no longer has any fraction bits left
-    extra_pixels = [1]
-    temp = pixel
-    while True:
-        temp *= 10
-        if (4.0 + (1 / temp)) - (4.0) > 0:
-            extra_pixels.insert(0, extra_pixels[0] * 10)
-        else:
-            break
-
-    show_msg("Starting scan for border")
-    bits = MandelEngine(max_iters=OPTIONS["border_iter"])
-
-    # Start scanning in the center of the Mandelbrot
-    x, y = 0, 0
-    while True:
-        is_border, add_x, add_y = bits.is_border(x, y)
-        if is_border:
-            break
-        x += 1
-
-    # Make sure the target final point is actually a border unit
-    tx, ty = x, y
-    if not bits.is_border(tx, ty)[0]:
-        raise Exception("The start and end don't connect!")
-
-    # An A* algo to find the border along the mand
-    final_trail = deque()
-    final_head = None
-    # The point where the A* algo is allowed to start searching up
-    unleash = False
-
-    # A priority queue to keep searching the "cheapest route"
-    todo = []
-    heapq.heappush(todo, (0, x, y, add_x, add_y, None))
-    todo_len = 1
-
-    # Dump out some message every now and then for the GUI mode
-    at = time.time() + 0.5
-    cost_check = 0
-
-    while True:
-        cost, x, y, add_x, add_y, history = heapq.heappop(todo)
-        todo_len -= 1
-
-        force_cost_check = False
-        if cost >= cost_check and history is not None and todo_len == 0:
-            force_cost_check = True
-        elif cost >= 100 and (x, y) == (tx, ty):
-            force_cost_check = True
-        # Temporary hack code to only find part of the edge
-        # elif cost >= 100 and x <= (-0.35 * pixel):
-        #     force_cost_check = True
-
-        if force_cost_check:
-            # We're on the only path, so it's safe to remove some extended history
-            # if the buffer is starting to get too large, so call in our helper
-            if todo_len == 0:
-                bits.seen_clean()
-            # For the last item, as well as every now and then, add the current trail we have
-            # to shrink down memory usage.  This is also where we drop points along the edge
-            # so we don't end up rendering millions of items.
-            cost_check += 5000
-            temp = deque()
-            # Invert the queue, and pop out the item we care about
-            while history is not None:
-                temp.append(history[1:5])
-                history = history[5]
-            # Place the inverted queue on our final queue
-            while len(temp):
-                cur = temp.pop()
-                if final_head is None or math.sqrt(((final_head[0] - cur[0]) ** 2) + ((final_head[1] - cur[1]) ** 2)) / pixel >= OPTIONS["frame_spacing"]:
-                    final_trail.append(cur)
-                    final_head = cur
-            history = None
-            if (x, y) == (tx, ty):
-                # We hit the end point, so we're all done!
+    if "saved_trail" in OPTIONS:
+        precise_trail = OPTIONS["saved_trail"]
+    else:
+        # Figure out all the possible extra digits we can use for precision before
+        # the double type no longer has any fraction bits left
+        extra_pixels = [1]
+        temp = pixel
+        while True:
+            temp *= 10
+            if (4.0 + (1 / temp)) - (4.0) > 0:
+                extra_pixels.insert(0, extra_pixels[0] * 10)
+            else:
                 break
 
-            # Temporary hack to limit the output based on the number of frames
-            # if len(final_trail) >= 10:
-            #     break
+        show_msg("Starting scan for border")
+        bits = MandelEngine(max_iters=OPTIONS["border_iter"])
 
+        # Start scanning in the center of the Mandelbrot
+        x, y = 0, 0
+        while True:
+            is_border, add_x, add_y = bits.is_border(x, y)
+            if is_border:
+                break
+            x += 1
+
+        # Make sure the target final point is actually a border unit
+        tx, ty = x, y
+        if not bits.is_border(tx, ty)[0]:
+            raise Exception("The start and end don't connect!")
+
+        # An A* algo to find the border along the mand
+        final_trail = deque()
+        final_head = None
+        # The point where the A* algo is allowed to start searching up
+        unleash = False
+
+        # A priority queue to keep searching the "cheapest route"
+        todo = []
+        heapq.heappush(todo, (0, x, y, add_x, add_y, None))
+        todo_len = 1
+
+        # Dump out some message every now and then for the GUI mode
+        at = time.time() + 0.5
+        cost_check = 0
+
+        while True:
+            cost, x, y, add_x, add_y, history = heapq.heappop(todo)
+            todo_len -= 1
+
+            force_cost_check = False
+            if cost >= cost_check and history is not None and todo_len == 0:
+                force_cost_check = True
+            elif cost >= 100 and (x, y) == (tx, ty):
+                force_cost_check = True
             # Temporary hack code to only find part of the edge
-            # if x <= (-0.35 * pixel):
-            #     break
+            # elif cost >= 100 and x <= (-0.35 * pixel):
+            #     force_cost_check = True
+
+            if force_cost_check:
+                # We're on the only path, so it's safe to remove some extended history
+                # if the buffer is starting to get too large, so call in our helper
+                if todo_len == 0:
+                    bits.seen_clean()
+                # For the last item, as well as every now and then, add the current trail we have
+                # to shrink down memory usage.  This is also where we drop points along the edge
+                # so we don't end up rendering millions of items.
+                cost_check += 5000
+                temp = deque()
+                # Invert the queue, and pop out the item we care about
+                while history is not None:
+                    temp.append(history[1:5])
+                    history = history[5]
+                # Place the inverted queue on our final queue
+                while len(temp):
+                    cur = temp.pop()
+                    if final_head is None or math.sqrt(((final_head[0] - cur[0]) ** 2) + ((final_head[1] - cur[1]) ** 2)) / pixel >= OPTIONS["frame_spacing"]:
+                        final_trail.append(cur)
+                        final_head = cur
+                history = None
+                if (x, y) == (tx, ty):
+                    # We hit the end point, so we're all done!
+                    break
+
+                # Temporary hack to limit the output based on the number of frames
+                # if len(final_trail) >= 10:
+                #     break
+
+                # Temporary hack code to only find part of the edge
+                # if x <= (-0.35 * pixel):
+                #     break
+
+            if _show_gui:
+                if time.time() >= at:
+                    perc = get_border_perc(x / pixel, y / pixel)
+                    yield {"type": "msg", "msg": f"Border, {perc:0.2f}% at {cost:,}, {todo_len:,} queue size, {bits.seen_cur_size:,} cache, {len(final_trail):,} total frames"}
+                    if not OPTIONS["save_edge"]:
+                        yield {"type": "show_loc", "status": "show", "x": x / pixel, "y": y / pixel}
+                    at = time.time() + 0.5
+            else:
+                if time.time() >= at:
+                    perc = get_border_perc(x / pixel, y / pixel)
+                    show_msg(f"Border: {perc:0.2f}%, $ {cost:.2e}, F {len(final_trail):,}, Q {todo_len:3,}, C {bits.seen_cur_size:9,}, @ {x/pixel:0.4f} x {y/pixel:0.4f}")
+                    at = time.time() + 60
+
+            # Check all the touching points of this
+            for ox, oy in [[x - 1, y - 1], [x + 1, y - 1], [x - 1, y + 1], [x + 1, y + 1], [x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]:
+                skip = False
+                if not unleash:
+                    # For the start, only go down
+                    if oy < 0:
+                        skip = True
+                    if ox <= -1.95 * pixel:
+                        unleash = True
+
+                if not skip:
+                    # If we've seen this point, don't bother with it again
+                    if bits.has_been_seen(ox, oy):
+                        skip = True
+
+                if not skip:
+                    is_border, new_add_x, new_add_y = bits.is_border(ox, oy)
+                    if is_border:
+                        # Ok, this point is possibly part of a path, go ahead and add it to our queue
+                        heapq.heappush(todo, (cost + 1, ox, oy, new_add_x, new_add_y, (cost, x, y, add_x, add_y, history)))
+                        todo_len += 1
 
         if _show_gui:
-            if time.time() >= at:
-                perc = get_border_perc(x / pixel, y / pixel)
-                yield {"type": "msg", "msg": f"Border, {perc:0.2f}% at {cost:,}, {todo_len:,} queue size, {bits.seen_cur_size:,} cache, {len(final_trail):,} total frames"}
-                if not OPTIONS["save_edge"]:
-                    yield {"type": "show_loc", "status": "show", "x": x / pixel, "y": y / pixel}
-                at = time.time() + 0.5
-        else:
-            if time.time() >= at:
-                perc = get_border_perc(x / pixel, y / pixel)
-                show_msg(f"Border: {perc:0.2f}%, $ {cost:.2e}, F {len(final_trail):,}, Q {todo_len:3,}, C {bits.seen_cur_size:9,}, @ {x/pixel:0.4f} x {y/pixel:0.4f}")
-                at = time.time() + 60
+            if not OPTIONS["save_edge"]:
+                yield {"type": "show_loc", "status": "hide"}
+        if final_trail is None:
+            raise Exception("Unable to find path to connect the start and end!")
 
-        # Check all the touching points of this
-        for ox, oy in [[x - 1, y - 1], [x + 1, y - 1], [x - 1, y + 1], [x + 1, y + 1], [x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]:
-            skip = False
-            if not unleash:
-                # For the start, only go down
-                if oy < 0:
-                    skip = True
-                if ox <= -1.95 * pixel:
-                    unleash = True
+        # Now get the list of all points in our little data objects to build a simple list
+        final_trail = [x for x in final_trail]
 
-            if not skip:
-                # If we've seen this point, don't bother with it again
-                if bits.has_been_seen(ox, oy):
-                    skip = True
+        # Hacky code to dump out the positions for percentages purposes
+        # total_dist = 0
+        # last_pt = None
+        # temp = []
+        # for x, y in final_trail:
+        #     if last_pt is not None:
+        #         total_dist += math.sqrt(((x - last_pt[0]) ** 2) + ((y - last_pt[1]) ** 2))
+        #     temp.append((total_dist, x / pixel, y / pixel))
+        #     last_pt = (x, y)
+        # with open("border_percs.txt", "wt", newline="") as f:
+        #     perc_at = 0
+        #     for dist, x, y in temp:
+        #         perc = int((dist / total_dist) * 10000)
+        #         if perc >= perc_at:
+        #             f.write(f"{perc / 100},{x},{y}\n")
+        #             perc_at += 1
+        # exit(0)
 
-            if not skip:
-                is_border, new_add_x, new_add_y = bits.is_border(ox, oy)
-                if is_border:
-                    # Ok, this point is possibly part of a path, go ahead and add it to our queue
-                    heapq.heappush(todo, (cost + 1, ox, oy, new_add_x, new_add_y, (cost, x, y, add_x, add_y, history)))
-                    todo_len += 1
+        # dump = []
+        # with open("dump.jsonl", "rt") as f:
+        #     for row in f:
+        #         dump.append(tuple(json.loads(row)))
+        # errors = 0
+        # if len(dump) != len(final_trail):
+        #     print(f"Dump of {len(dump)} != final trail of {len(final_trail)}")
+        #     errors += 1
+        # for i, (ft_val, d_val) in enumerate(zip(final_trail, dump)):
+        #     if ft_val != d_val:
+        #         print(f"At {i}, val of {ft_val} != {d_val}")
+        #         errors += 1
+        #         if errors >= 15:
+        #             break
+        # if errors == 0:
+        #     print("All good!")
+        # with open("dump.jsonl", "wt") as f:
+        #     for cur in final_trail:
+        #         f.write(json.dumps(cur) + "\n")
+        # exit(0)
 
-    if _show_gui:
-        if not OPTIONS["save_edge"]:
-            yield {"type": "show_loc", "status": "hide"}
-    if final_trail is None:
-        raise Exception("Unable to find path to connect the start and end!")
+        # Append the first frame to the end so we start where we ended
+        final_trail.append(final_trail[0])
+        show_msg(f"Found trail of {len(final_trail):,} items")
 
-    # Now get the list of all points in our little data objects to build a simple list
-    final_trail = [x for x in final_trail]
+        # Run through each of the final points and get as close as we can
+        # to entering the set
+        precise_trail = []
+        new_pixel = extra_pixels[0] * pixel * 10
+        for i, (x, y, add_x, add_y) in enumerate(final_trail):
+            x *= extra_pixels[0] * 10
+            y *= extra_pixels[0] * 10
+            add = extra_pixels[0] * 10
+            for add in extra_pixels:
+                while not bits.calc_mand((x + (add * add_x)) / new_pixel, (y + (add * add_y)) / new_pixel):
+                    x += add * add_x
+                    y += add * add_y
+            precise_trail.append((x / new_pixel, y / new_pixel))
+            if _show_gui:
+                if time.time() >= at:
+                    yield {"type": "msg", "msg": f"Cleaning up pixels, {i / len(final_trail) * 100:.2f}%"}
+                    at = time.time() + 0.5
+            else:
+                if time.time() >= at:
+                    show_msg(f"Cleaning up pixels, {i / len(final_trail) * 100:.2f}%")
+                    at = time.time() + 15
 
-    # Hacky code to dump out the positions for percentages purposes
-    # total_dist = 0
-    # last_pt = None
-    # temp = []
-    # for x, y in final_trail:
-    #     if last_pt is not None:
-    #         total_dist += math.sqrt(((x - last_pt[0]) ** 2) + ((y - last_pt[1]) ** 2))
-    #     temp.append((total_dist, x / pixel, y / pixel))
-    #     last_pt = (x, y)
-    # with open("border_percs.txt", "wt", newline="") as f:
-    #     perc_at = 0
-    #     for dist, x, y in temp:
-    #         perc = int((dist / total_dist) * 10000)
-    #         if perc >= perc_at:
-    #             f.write(f"{perc / 100},{x},{y}\n")
-    #             perc_at += 1
-    # exit(0)
-
-    # dump = []
-    # with open("dump.jsonl", "rt") as f:
-    #     for row in f:
-    #         dump.append(tuple(json.loads(row)))
-    # errors = 0
-    # if len(dump) != len(final_trail):
-    #     print(f"Dump of {len(dump)} != final trail of {len(final_trail)}")
-    #     errors += 1
-    # for i, (ft_val, d_val) in enumerate(zip(final_trail, dump)):
-    #     if ft_val != d_val:
-    #         print(f"At {i}, val of {ft_val} != {d_val}")
-    #         errors += 1
-    #         if errors >= 15:
-    #             break
-    # if errors == 0:
-    #     print("All good!")
-    # with open("dump.jsonl", "wt") as f:
-    #     for cur in final_trail:
-    #         f.write(json.dumps(cur) + "\n")
-    # exit(0)
-
-    # Append the first frame to the end so we start where we ended
-    final_trail.append(final_trail[0])
-    show_msg(f"Found trail of {len(final_trail):,} items")
-
-    # Run through each of the final points and get as close as we can
-    # to entering the set
-    precise_trail = []
-    new_pixel = extra_pixels[0] * pixel * 10
-    for i, (x, y, add_x, add_y) in enumerate(final_trail):
-        x *= extra_pixels[0] * 10
-        y *= extra_pixels[0] * 10
-        add = extra_pixels[0] * 10
-        for add in extra_pixels:
-            while not bits.calc_mand((x + (add * add_x)) / new_pixel, (y + (add * add_y)) / new_pixel):
-                x += add * add_x
-                y += add * add_y
-        precise_trail.append((x / new_pixel, y / new_pixel))
-        if _show_gui:
-            if time.time() >= at:
-                yield {"type": "msg", "msg": f"Cleaning up pixels, {i / len(final_trail) * 100:.2f}%"}
-                at = time.time() + 0.5
-        else:
-            if time.time() >= at:
-                show_msg(f"Cleaning up pixels, {i / len(final_trail) * 100:.2f}%")
-                at = time.time() + 15
+        OPTIONS["saved_trail"] = precise_trail
+        if "SAVE_TRAIL" in os.environ:
+            with open(os.environ["SAVE_TRAIL"], "wb") as f:
+                pickle.dump(OPTIONS["saved_trail"], f)
 
     if OPTIONS["save_edge"]:
         for x, y in precise_trail:
@@ -489,7 +497,7 @@ def find_edge(show_msg=show_msg):
                 "y": y,
                 "rgb": (255, 255, 255),
                 "first": i == 0,
-                "last": i == (len(final_trail) - 1),
+                "last": i == (len(precise_trail) - 1),
             }
             if i % skip == 0:
                 yield {"type": "animate"}
@@ -712,7 +720,7 @@ def handle_save_edge_point(state, job, show_msg=show_msg):
     if (pt_x, pt_y) not in seen:
         seen.add((pt_x, pt_y))
 
-        size = 4
+        size = 6
         for xo in range(-size, size+1):
             for yo in range(-size, size+1):
                 if xo*xo+yo*yo <= size*size:
@@ -720,7 +728,7 @@ def handle_save_edge_point(state, job, show_msg=show_msg):
                     if _show_gui:
                         state.screen.set_at(((pt_x + xo) // (_gui_shrink * scale), (pt_y + yo) // (_gui_shrink * scale)), (255, 0, 0))
 
-        size = 2
+        size = 4
         for xo in range(-size, size+1):
             for yo in range(-size, size+1):
                 if xo*xo+yo*yo <= size*size:

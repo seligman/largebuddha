@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import os
+import os, pickle
 
 OPTIONS = {
     "width": 3840,              # Width of the final output image
@@ -18,7 +18,7 @@ OPTIONS = {
     "save_edge": False,         # Draw the edge and save it as a graphics file
     "mand_loc": {"size": 11.0, "x": 4.5, "y": 1.5}, # Location of the main Mandelbrot on all Julia images
     "mand_iters": 100,          # Number of iterations for the main Mandelbrot
-    "julia_iters": 2_000,       # Number of iterations for each Julia set
+    "julia_iters": 5_000,       # Number of iterations for each Julia set
     "border_iter": 1000,        # Number of iterations when searching for the border points
     "shrink": 1,                # Number to divide all width/height calls by
     "scan_size": 100_000,       # Number of points per unit when searching for the border
@@ -35,6 +35,12 @@ OPTIONS = {
 # OPTIONS["gui_shrink"] = 1
 # OPTIONS["mand_loc"] = {"size": 5.0, "x": 0.75, "y": 0.0}
 # OPTIONS["show_gui"] = False
+# with open("data/edge_10000_e05x100.png.dat", "rb") as f:
+#     OPTIONS["saved_trail"] = pickle.load(f)
+
+if "LOAD_TRAIL" in os.environ:
+    with open(os.environ("LOAD_TRAIL"), "rb") as f:
+        OPTIONS["saved_trail"] = pickle.load(f)
 
 if "DRAW_EDGE" in os.environ:
     OPTIONS["border_iter"] = 3
@@ -65,13 +71,12 @@ if OPTIONS["shrink"] > 1:
     OPTIONS["add_extra_frames"] = False
 
 def show_flags():
-    if "NO_GUI" in os.environ:
-        print("NO_GUI option set")
-    if "MULTIPROC" in os.environ:
-        print("MULTIPROC option set")
-    if "SYNCMODE" in os.environ:
-        print("SYNCMODE option set")
-    if "PROCS" in os.environ:
-        print(f"PROCS option set to {os.environ['PROCS']}")
-    if "DRAW_EDGE" in os.environ:
-        print("DRAW_EDGE option set")
+    for arg in ["LOAD_TRAIL", "SAVE_TRAIL", "PROCS"]:
+        if arg in os.environ:
+            print(f"{arg} option set to {os.environ[arg]}")
+    for arg in ["NO_GUI", "MULTIPROC", "SYNCMODE", "DRAW_EDGE"]:
+        if arg in os.environ:
+            print(f"{arg} option set")
+
+if __name__ == "__main__":
+    print("This module is not meant to be run directly")

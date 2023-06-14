@@ -215,11 +215,16 @@ class MandelEngine:
 
         return True
 
-    def is_in_set(self, x, y):
-        # Return True if a point is in the set, False otherwise, expects integer location scaled
-        # by self.pixel units
-        return self.calc_mand(x / self.pixel, y / self.pixel)
-    
+    def get_iter_level(self, x, y, pixel=None):
+        if pixel is None:
+            pixel = self.pixel
+        # Returns the iter level of this, can return one higher than the max_iters
+        in_set, escaped_at, _ = mandelbrot_native_helper.calc(x / pixel, y / pixel, False, 0, 0, self.max_iters + 1)
+        if in_set == 1:
+            return self.max_iters + 1
+        else:
+            return escaped_at
+
     def seen_clean(self):
         # It's safe to remove some history, so do so if we need to
         if self.seen_cur_size >= 100_000:
@@ -237,19 +242,19 @@ class MandelEngine:
         self.seen_cur.add(pt)
 
     def is_border(self, x, y):
-        # Return True if this point is a "border", in other words, is not in the set, but touches
-        # at least on pixel that is in the set.  Uses self.pixel integer units
-        if self.is_in_set(x, y):
+        # Return True if this point is a "border", in other words, it is a point
+        # along target iteration, and touches a point that has a higher iteration
+        if self.get_iter_level(x, y) > self.max_iters:
             return False, 0, 0
         
-        if self.is_in_set(x - 1, y - 1): return True, -1, -1
-        if self.is_in_set(x + 1, y - 1): return True, 1, -1
-        if self.is_in_set(x + 1, y + 1): return True, 1, 1
-        if self.is_in_set(x - 1, y + 1): return True, -1, 1
-        if self.is_in_set(x, y - 1): return True, 0, -1
-        if self.is_in_set(x + 1, y): return True, 1, 0
-        if self.is_in_set(x, y + 1): return True, 0, 1
-        if self.is_in_set(x - 1, y): return True, -1, 0
+        if self.get_iter_level(x - 1, y - 1) > self.max_iters: return True, -1, -1
+        if self.get_iter_level(x + 1, y - 1) > self.max_iters: return True, 1, -1
+        if self.get_iter_level(x + 1, y + 1) > self.max_iters: return True, 1, 1
+        if self.get_iter_level(x - 1, y + 1) > self.max_iters: return True, -1, 1
+        if self.get_iter_level(x, y - 1) > self.max_iters: return True, 0, -1
+        if self.get_iter_level(x + 1, y) > self.max_iters: return True, 1, 0
+        if self.get_iter_level(x, y + 1) > self.max_iters: return True, 0, 1
+        if self.get_iter_level(x - 1, y) > self.max_iters: return True, -1, 0
         
         return False, 0, 0
 
@@ -269,6 +274,34 @@ def get_border_perc(x, y):
                 best_dist = dist
     return best
 
+def find_mid_point(source_x, source_y, border_iter, pixel):
+    # Helper to find the point nearest to the midel of an iteration given a point
+    # Returns None if it can't find some point near the midpoint
+    target = border_iter - 0.5
+
+    scale = pixel
+    best = (9999, source_x, source_y)
+    while 1e-15 < 1/scale:
+        if best is not None:
+            _, x, y = best
+        for ox in [x-1/scale, x, x+1/scale]:
+            for oy in [y-1/scale, y, y+1/scale]:
+                in_set, escaped_at, final_dist = mandelbrot_native_helper.calc(ox, oy, False, 0.0, 0.0, border_iter + 1)
+                if in_set == 0:
+                    log_zn = math.log(final_dist) / 2
+                    nu = math.log(log_zn / math.log(2)) / math.log(2)
+                    final_dist = escaped_at + 1 - nu
+
+                    dist = abs(final_dist - target)
+                    if best is None or dist < best[0]:
+                        best = (dist, ox, oy)
+        scale *= 2
+    dist, x, y = best
+    if dist <= 1e-5:
+        return x, y
+    else:
+        return None
+
 def find_edge(show_msg=show_msg):
     # State machine to find the border of the mandelbrot, does so by a simple A* scan around the border
     yield {"type": "msg", "msg": "Filling Edge"}
@@ -279,17 +312,18 @@ def find_edge(show_msg=show_msg):
     else:
         # Figure out all the possible extra digits we can use for precision before
         # the double type no longer has any fraction bits left
-        extra_pixels = [1]
+        extra_pixels = []
         temp = pixel
         while True:
             temp *= 10
             if (4.0 + (1 / temp)) - (4.0) > 0:
-                extra_pixels.insert(0, extra_pixels[0] * 10)
+                extra_pixels.append(temp)
             else:
                 break
 
         show_msg("Starting scan for border")
-        bits = MandelEngine(max_iters=OPTIONS["border_iter"])
+        border_iter = OPTIONS["border_iter"]
+        bits = MandelEngine(max_iters=border_iter)
 
         # Start scanning in the center of the Mandelbrot
         x, y = 0, 0
@@ -297,6 +331,8 @@ def find_edge(show_msg=show_msg):
             is_border, add_x, add_y = bits.is_border(x, y)
             if is_border:
                 break
+            if bits.get_iter_level(x, y) < border_iter:
+                raise Exception("Unable to find first border point!")
             x += 1
 
         # Make sure the target final point is actually a border unit
@@ -350,8 +386,10 @@ def find_edge(show_msg=show_msg):
                 while len(temp):
                     cur = temp.pop()
                     if final_head is None or math.sqrt(((final_head[0] - cur[0]) ** 2) + ((final_head[1] - cur[1]) ** 2)) / pixel >= OPTIONS["frame_spacing"]:
-                        final_trail.append(cur)
-                        final_head = cur
+                        nearest = find_mid_point(cur[0] / pixel, cur[1] / pixel, border_iter, pixel)
+                        if nearest is not None:
+                            final_trail.append(nearest)
+                            final_head = cur
                 history = None
                 if (x, y) == (tx, ty):
                     # We hit the end point, so we're all done!
@@ -406,9 +444,6 @@ def find_edge(show_msg=show_msg):
         if final_trail is None:
             raise Exception("Unable to find path to connect the start and end!")
 
-        # Now get the list of all points in our little data objects to build a simple list
-        final_trail = [x for x in final_trail]
-
         # Hacky code to dump out the positions for percentages purposes
         # total_dist = 0
         # last_pt = None
@@ -448,31 +483,12 @@ def find_edge(show_msg=show_msg):
         #         f.write(json.dumps(cur) + "\n")
         # exit(0)
 
-        # Append the first frame to the end so we start where we ended
+        # Turn the deque into a simple list:
+        final_trail = [x for x in final_trail]
         final_trail.append(final_trail[0])
         show_msg(f"Found trail of {len(final_trail):,} items")
 
-        # Run through each of the final points and get as close as we can
-        # to entering the set
-        precise_trail = []
-        new_pixel = extra_pixels[0] * pixel * 10
-        for i, (x, y, add_x, add_y) in enumerate(final_trail):
-            x *= extra_pixels[0] * 10
-            y *= extra_pixels[0] * 10
-            add = extra_pixels[0] * 10
-            for add in extra_pixels:
-                while not bits.calc_mand((x + (add * add_x)) / new_pixel, (y + (add * add_y)) / new_pixel):
-                    x += add * add_x
-                    y += add * add_y
-            precise_trail.append((x / new_pixel, y / new_pixel))
-            if _show_gui:
-                if time.time() >= at:
-                    yield {"type": "msg", "msg": f"Cleaning up pixels, {i / len(final_trail) * 100:.2f}%"}
-                    at = time.time() + 0.5
-            else:
-                if time.time() >= at:
-                    show_msg(f"Cleaning up pixels, {i / len(final_trail) * 100:.2f}%")
-                    at = time.time() + 15
+        precise_trail = final_trail
 
         OPTIONS["saved_trail"] = precise_trail
         if "SAVE_TRAIL" in os.environ:
@@ -724,15 +740,17 @@ def handle_save_edge_point(state, job, show_msg=show_msg):
         for xo in range(-size, size+1):
             for yo in range(-size, size+1):
                 if xo*xo+yo*yo <= size*size:
-                    border_1[pt_y + yo, pt_x + xo] = 1
-                    if _show_gui:
-                        state.screen.set_at(((pt_x + xo) // (_gui_shrink * scale), (pt_y + yo) // (_gui_shrink * scale)), (255, 0, 0))
+                    if 0 <= pt_x + xo < _width*scale and 0 <= pt_y + yo < _height*scale:
+                        border_1[pt_y + yo, pt_x + xo] = 1
+                        if _show_gui:
+                            state.screen.set_at(((pt_x + xo) // (_gui_shrink * scale), (pt_y + yo) // (_gui_shrink * scale)), (255, 0, 0))
 
         size = 4
         for xo in range(-size, size+1):
             for yo in range(-size, size+1):
                 if xo*xo+yo*yo <= size*size:
-                    border_2[pt_y + yo, pt_x + xo] = 1
+                    if 0 <= pt_x + xo < _width*scale and 0 <= pt_y + yo < _height*scale:
+                        border_2[pt_y + yo, pt_x + xo] = 1
 
 def handle_save_edge_frame(state, job, show_msg=show_msg):
     border_1, border_2, seen, scale = state.extra
@@ -753,11 +771,12 @@ def handle_save_edge_frame(state, job, show_msg=show_msg):
                     int(state.pixels[y, x, 1] * (1 - (total_1 + total_2)) + (64 * total_2) + (32 * total_1)),
                     int(state.pixels[y, x, 2] * (1 - (total_1 + total_2)) + (64 * total_2) + (32 * total_1)),
                 )
-    im = Image.fromarray(state.pixels)
-    if not os.path.isdir("data"):
-        os.mkdir("data")
-    im.save(os.path.join("data", job.get("fn", "edge.png")))
-    im.close()
+    if not job.get("skip_save", False):
+        im = Image.fromarray(state.pixels)
+        if not os.path.isdir("data"):
+            os.mkdir("data")
+        im.save(os.path.join("data", job.get("fn", "edge.png")))
+        im.close()
 
 class State:
     # State information for our main worker, useful to pass the current GUI information, along
@@ -779,7 +798,7 @@ class State:
 
 def append_mand(engines):
     engines.append(draw_mand(
-        alias=1 if OPTIONS["quick_mode"] else 2, 
+        alias=1 if (OPTIONS["quick_mode"] or OPTIONS["no_alias"]) else 2, 
         size=_mand_loc_size, 
         center_x=_mand_loc_x, 
         center_y=_mand_loc_y, 
@@ -819,6 +838,7 @@ def main():
     show_border = 0
     frame_number = 0
     pointer = {}
+    key_split = 1
 
     while running:
         if _show_gui:
@@ -838,30 +858,38 @@ def main():
                     # W/S = Zoom in/out
                     if event.key == pygame.K_ESCAPE:
                         running = False
+                    elif event.key == pygame.K_z:
+                        key_split *= 2
+                        print(f"Key split is now {key_split}")
+                        mand_changed = True
+                    elif event.key == pygame.K_x:
+                        key_split /= 2
+                        print(f"Key split is now {key_split}")
+                        mand_changed = True
                     elif event.key == pygame.K_UP:
-                        OPTIONS["mand_loc"]["y"] -= 0.25
+                        OPTIONS["mand_loc"]["y"] -= 0.25 / key_split
                         mand_changed = True
                     elif event.key == pygame.K_DOWN:
-                        OPTIONS["mand_loc"]["y"] += 0.25
+                        OPTIONS["mand_loc"]["y"] += 0.25 / key_split
                         mand_changed = True
                     elif event.key == pygame.K_LEFT:
-                        OPTIONS["mand_loc"]["x"] -= 0.25
+                        OPTIONS["mand_loc"]["x"] -= 0.25 / key_split
                         mand_changed = True
                     elif event.key == pygame.K_RIGHT:
-                        OPTIONS["mand_loc"]["x"] += 0.25
+                        OPTIONS["mand_loc"]["x"] += 0.25 / key_split
                         mand_changed = True
                     elif event.key == pygame.K_w:
-                        OPTIONS["mand_loc"]["size"] += 0.5
+                        OPTIONS["mand_loc"]["size"] += 0.5 / key_split
                         mand_changed = True
                     elif event.key == pygame.K_s:
-                        OPTIONS["mand_loc"]["size"] -= 0.5
+                        OPTIONS["mand_loc"]["size"] -= 0.5 / key_split
                         mand_changed = True
                     
                     if mand_changed:
                         # The position changed, drop a new state machine in place to render it
                         reload_options()
                         engines = []
-                        append_mand()
+                        append_mand(engines)
                         print('    "mand_loc": ' + json.dumps(OPTIONS["mand_loc"]) + ",")
 
                 elif event.type == pygame.KEYUP and event.key == pygame.K_ESCAPE:
@@ -937,7 +965,7 @@ def main():
                     show_border += 1
                     if show_border % 10 == 1 or True:
                         args_mand = {
-                            'alias': 1 if OPTIONS["quick_mode"] else 2, 
+                            'alias': 1 if (OPTIONS["quick_mode"] or OPTIONS["no_alias"]) else 2, 
                             'size': 5, 
                             'center_x': 0, 
                             'center_y': 0, 

@@ -275,37 +275,48 @@ def get_border_perc(x, y):
     return best
 
 def find_mid_point(source_x, source_y, border_iter, pixel):
-    # Helper to find the point nearest to the midel of an iteration given a point
-    # Returns None if it can't find some point near the midpoint
-    target = border_iter - 0.5
+    target_iter, target_dist = border_iter - 1, border_iter * border_iter
+    if border_iter < 50:
+        target_dist = 0
 
     scale = pixel
-    best = (9999, source_x, source_y)
-    while 1e-15 < 1/scale:
-        if best is not None:
-            _, x, y = best
-        for ox in [x-1/scale, x, x+1/scale]:
-            for oy in [y-1/scale, y, y+1/scale]:
-                in_set, escaped_at, final_dist = mandelbrot_native_helper.calc(ox, oy, False, 0.0, 0.0, border_iter + 1)
-                if in_set == 0:
-                    log_zn = math.log(final_dist) / 2
-                    nu = math.log(log_zn / math.log(2)) / math.log(2)
-                    final_dist = escaped_at + 1 - nu
-
-                    dist = abs(final_dist - target)
-                    if best is None or dist < best[0]:
-                        best = (dist, ox, oy)
-        scale *= 2
-    dist, x, y = best
-    if dist <= 1e-5:
-        return x, y
+    in_set, escaped_at, final_dist = mandelbrot_native_helper.calc(source_x, source_y, False, 0.0, 0.0, border_iter + 10)
+    if in_set == 1:
+        best_iter, best_dist, x, y = border_iter + 10_000, 0, source_x, source_y
     else:
-        return None
+        best_iter, best_dist, x, y = escaped_at, final_dist, source_x, source_y
+
+    while 1e-15 < 1/scale:
+        for dx, dy in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]:
+            ox, oy = 0, 0
+            for _ in range(5):
+                ox, oy = ox + dx, oy + dy
+                tx = x + ox / scale
+                ty = y + oy / scale
+                in_set, escaped_at, final_dist = mandelbrot_native_helper.calc(tx, ty, False, 0.0, 0.0, border_iter + 10)
+                if in_set == 1:
+                    escaped_at, final_dist = border_iter + 10_000, 0
+                better = False
+                if abs(target_iter - best_iter) > abs(target_iter - escaped_at):
+                    better = True
+                elif abs(target_iter - best_iter) == abs(target_iter - escaped_at):
+                    if abs(target_dist - best_dist) > abs(target_dist - final_dist):
+                        better = True
+                if better:
+                    best_iter, best_dist, x, y = escaped_at, final_dist, tx, ty
+        scale *= 2
+    if border_iter < 50:
+        return x, y
+    if best_iter == target_iter:
+        if abs(best_dist - target_dist) < 1e3:
+            return x, y
+    return None
 
 def find_edge(show_msg=show_msg):
     # State machine to find the border of the mandelbrot, does so by a simple A* scan around the border
     yield {"type": "msg", "msg": "Filling Edge"}
     pixel = OPTIONS["scan_size"]
+    precise_point = OPTIONS["precise_point"]
 
     if "saved_trail" in OPTIONS:
         precise_trail = OPTIONS["saved_trail"]
@@ -386,7 +397,10 @@ def find_edge(show_msg=show_msg):
                 while len(temp):
                     cur = temp.pop()
                     if final_head is None or math.sqrt(((final_head[0] - cur[0]) ** 2) + ((final_head[1] - cur[1]) ** 2)) / pixel >= OPTIONS["frame_spacing"]:
-                        nearest = find_mid_point(cur[0] / pixel, cur[1] / pixel, border_iter, pixel)
+                        if precise_point:
+                            nearest = find_mid_point(cur[0] / pixel, cur[1] / pixel, border_iter, pixel)
+                        else:
+                            nearest = (cur[0] / pixel, cur[1] / pixel)
                         if nearest is not None:
                             final_trail.append(nearest)
                             final_head = cur
@@ -486,6 +500,11 @@ def find_edge(show_msg=show_msg):
         # Turn the deque into a simple list:
         final_trail = [x for x in final_trail]
         final_trail.append(final_trail[0])
+
+        # Temporary hack to limit the size of the trail
+        # while len(final_trail) >= 20_000:
+        #     final_trail = [final_trail[0]] + [x for i, x in enumerate(final_trail[1:-1]) if (i % 2) == 0] + [final_trail[-1]]
+
         show_msg(f"Found trail of {len(final_trail):,} items")
 
         precise_trail = final_trail
@@ -721,48 +740,59 @@ def handle_set_target(state, job, show_msg=show_msg):
 
 def handle_save_edge_point(state, job, show_msg=show_msg):
     if state.extra is None:
+        big_circle, small_circle = [], []
+        size = 10
+        for xo in range(-size, size+1):
+            for yo in range(-size, size+1):
+                if xo*xo+yo*yo <= size*size:
+                    big_circle.append((xo, yo))
+        size = 8
+        for xo in range(-size, size+1):
+            for yo in range(-size, size+1):
+                if xo*xo+yo*yo <= size*size:
+                    small_circle.append((xo, yo))
+
         scale = 2
         state.extra = [
             np.zeros((_height * scale, _width * scale), dtype=np.uint8),
             np.zeros((_height * scale, _width * scale), dtype=np.uint8),
             set(),
             scale,
+            big_circle,
+            small_circle,
         ]
-    border_1, border_2, seen, scale = state.extra
+    border_1, border_2, seen, scale, big_circle, small_circle = state.extra
 
     pt_x, pt_y = mand_to_gui(job['x'], job['y'])
     pt_x, pt_y = int(pt_x * scale), int(pt_y * scale)
 
-    if (pt_x, pt_y) not in seen:
-        seen.add((pt_x, pt_y))
+    if -15 <= pt_x < _width*scale+15 and -15 <= pt_y < _height*scale+15:
+        if (pt_x, pt_y) not in seen:
+            seen.add((pt_x, pt_y))
+            for xo, yo in big_circle:
+                if 0 <= pt_x + xo < _width*scale and 0 <= pt_y + yo < _height*scale:
+                    border_1[pt_y + yo, pt_x + xo] = 1
+                    if _show_gui:
+                        state.screen.set_at(((pt_x + xo) // (_gui_shrink * scale), (pt_y + yo) // (_gui_shrink * scale)), (255, 0, 0))
 
-        size = 6
-        for xo in range(-size, size+1):
-            for yo in range(-size, size+1):
-                if xo*xo+yo*yo <= size*size:
-                    if 0 <= pt_x + xo < _width*scale and 0 <= pt_y + yo < _height*scale:
-                        border_1[pt_y + yo, pt_x + xo] = 1
-                        if _show_gui:
-                            state.screen.set_at(((pt_x + xo) // (_gui_shrink * scale), (pt_y + yo) // (_gui_shrink * scale)), (255, 0, 0))
-
-        size = 4
-        for xo in range(-size, size+1):
-            for yo in range(-size, size+1):
-                if xo*xo+yo*yo <= size*size:
-                    if 0 <= pt_x + xo < _width*scale and 0 <= pt_y + yo < _height*scale:
-                        border_2[pt_y + yo, pt_x + xo] = 1
+            for xo, yo in small_circle:
+                if 0 <= pt_x + xo < _width*scale and 0 <= pt_y + yo < _height*scale:
+                    border_2[pt_y + yo, pt_x + xo] = 1
 
 def handle_save_edge_frame(state, job, show_msg=show_msg):
-    border_1, border_2, seen, scale = state.extra
-    for x in range(_width):
-        for y in range(_height):
+    border_1, border_2, seen, scale, big_circle, small_circle = state.extra
+    inner = []
+    for xo in range(scale):
+        for yo in range(scale):
+            inner.append((xo, yo))
+    for y in range(_height):
+        for x in range(_width):
             total_1, total_2 = 0, 0
-            for xo in range(scale):
-                for yo in range(scale):
-                    if border_2[y * scale + yo, x * scale + xo] > 0:
-                        total_2 += 1
-                    elif border_1[y * scale + yo, x * scale + xo] > 0:
-                        total_1 += 1
+            for xo, yo in inner:
+                if border_2[y * scale + yo, x * scale + xo] > 0:
+                    total_2 += 1
+                elif border_1[y * scale + yo, x * scale + xo] > 0:
+                    total_1 += 1
             if (total_1 + total_2) > 0:
                 total_1 /= scale * scale
                 total_2 /= scale * scale

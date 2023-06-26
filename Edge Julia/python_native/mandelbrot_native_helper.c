@@ -45,7 +45,7 @@ static PyObject * mandelbrot_calc(PyObject *self, PyObject * args) {
         x = nextX;
         y = nextY;
         dist = x * x + y * y;
-        if (dist >= 25) {
+        if (dist >= 1<<10) {
             return Py_BuildValue("iid", 0, i, dist);
         }
     }

@@ -17,6 +17,7 @@ OPTIONS = {
     "add_extra_frames": True,   # Add extra frames to the start and end
     "draw_julias": True,        # Draw all Julia frames
     "save_edge": False,         # Draw the edge and save it as a graphics file
+    "precise_point": True,      # Find the precise point after finding a target point
     "mand_loc": {"size": 11.0, "x": 4.5, "y": 1.5}, # Location of the main Mandelbrot on all Julia images
     "mand_iters": 100,          # Number of iterations for the main Mandelbrot
     "julia_iters": 250,         # Number of iterations for each Julia set
@@ -32,18 +33,48 @@ OPTIONS = {
 # OPTIONS["save_results"] = False
 # OPTIONS["scan_size"] = 10_000
 # OPTIONS["quick_mode"] = True
-# OPTIONS["no_alias"] = True
 # OPTIONS["julia_iters"] = 250
-# OPTIONS["shrink"] = 4
-# OPTIONS["gui_shrink"] = 1
 # OPTIONS["mand_loc"] = {"size": 5.0, "x": 0.75, "y": 0.0}
 # OPTIONS["frame_spacing"] = 0.01
 # OPTIONS["show_gui"] = False
-# with open("data/edge_10000_e05x100.png.dat", "rb") as f:
-#     temp = pickle.load(f)
-#     while len(temp) >= 200: # 20_000:
-#         temp = [temp[0]] + [x for i, x in enumerate(temp[1:-1]) if (i % 2) == 0] + [temp[-1]]
-#     OPTIONS["saved_trail"] = temp
+
+# OPTIONS["shrink"] = 4
+# OPTIONS["gui_shrink"] = 1
+# OPTIONS["no_alias"] = True
+
+# --- Load and limit data file
+if False:
+    # edge_00022_e05x177
+    # edge_00075_e06x177
+    # edge_00100_e06x100
+    OPTIONS["source_data_file"] = "edge_00100_e06x100"
+    target_frames = 15_000
+    source_fn = os.path.join("data", OPTIONS["source_data_file"] + ".png.dat")
+
+    if "saved_trail" not in OPTIONS:
+        def limit_trail(trail, spacing):
+            import math
+            ret = [trail[0]]
+            for x, y in trail[1:-1]:
+                if math.sqrt(((ret[-1][0] - x) ** 2) + ((ret[-1][1] - y) ** 2)) >= spacing:
+                    ret.append((x, y))
+            ret.append(trail[-1])
+            return ret
+
+        def find_nearest(target_length, fn):
+            with open(fn, "rb") as f:
+                temp = pickle.load(f)
+            best_skip, best_trail = 0, temp
+            for i in range(1, 20):
+                for add in [-1, 1]:
+                    test_skip = best_skip + add / (2 ** i)
+                    test_trail = limit_trail(temp, test_skip)
+                    if abs(target_length - len(test_trail)) < abs(target_length - len(best_trail)):
+                        best_skip, best_trail = test_skip, test_trail
+            return best_trail, best_skip, len(temp)
+
+        OPTIONS["saved_trail"], best_skip, orig_frames = find_nearest(target_frames, source_fn)
+        print(f'Using {OPTIONS["source_data_file"]}, with {len(OPTIONS["saved_trail"]):,} from {orig_frames:,} frames, and skip {best_skip}')
 
 if "LOAD_TRAIL" in os.environ:
     with open(os.environ("LOAD_TRAIL"), "rb") as f:

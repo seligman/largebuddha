@@ -38,9 +38,11 @@ OPTIONS = {
 # OPTIONS["frame_spacing"] = 0.01
 # OPTIONS["show_gui"] = False
 
-# OPTIONS["shrink"] = 4
-# OPTIONS["gui_shrink"] = 1
-# OPTIONS["no_alias"] = True
+if "QUICK_MODE" in os.environ:
+    os.environ["LOAD_TRAIL"] = "edge_00039_e06x177.smooth.dat"
+    OPTIONS["shrink"] = 4
+    OPTIONS["gui_shrink"] = 1
+    OPTIONS["no_alias"] = True
 
 # --- Load and limit data file
 if False:
@@ -77,7 +79,7 @@ if False:
         print(f'Using {OPTIONS["source_data_file"]}, with {len(OPTIONS["saved_trail"]):,} from {orig_frames:,} frames, and skip {best_skip}')
 
 if "LOAD_TRAIL" in os.environ:
-    with open(os.environ("LOAD_TRAIL"), "rb") as f:
+    with open(os.environ["LOAD_TRAIL"], "rb") as f:
         OPTIONS["saved_trail"] = pickle.load(f)
 
 if "DRAW_EDGE" in os.environ:

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from skimage.metrics import structural_similarity as ssim
 from collections import deque
 from datetime import datetime, timedelta
 from scottsutils.command_opts import opt, main_entry
@@ -8,9 +9,9 @@ from urllib.request import urlopen
 import mandelbrot_native_helper
 import numpy as np
 import lzma, math, multiprocessing, os, pickle, psutil
-import socket, sqlite3, statistics, threading, time
+import socket, sqlite3, statistics, threading, time, subprocess
 
-TARGET = "edge_00039_e06x177_many"
+TARGET = "edge_00039_e06x177"
 DATA_FILE = os.path.join("data", TARGET + ".png.dat")
 DB_FILE = TARGET + ".smooth.db"
 OUTPUT_FILE = TARGET + ".smooth.dat"
@@ -29,6 +30,27 @@ def opt_skip():
     global _skip_load
     _skip_load = True
     show_msg("Option: Skip Load set to True")
+
+@opt("Visualize a frame from the database")
+def vis_frame(frame_no, fn):
+    db, _ = open_db()
+    frame_no = int(frame_no)
+    data = db.execute("SELECT frame_data FROM frames WHERE frame_no=?;", (frame_no,)).fetchone()[0]
+    data = lzma.decompress(data)
+    data = pickle.loads(data)
+
+    data = np.rot90(data)
+
+    from PIL import Image
+    im = Image.fromarray(data)
+    im.save(fn)
+
+    show_msg(f"Created {fn}")
+    
+@opt("Clean up database")
+def clean_db():
+    db, _ = open_db()
+    db.close()
 
 @opt("Limit number of target frames")
 def opt_limit(perc):
@@ -110,6 +132,13 @@ def open_db():
 
 def load_frames(db):
     show_msg("Loading frame data into DB...")
+    if not os.path.isfile(DATA_FILE):
+        subprocess.check_call([
+            "aws", "--profile", "pers", 
+            "s3", "cp", 
+            "s3://scotts-mess/temp/edge/" + DATA_FILE.replace("\\", "/").split("/")[-1], 
+            DATA_FILE,
+        ])
     with open(DATA_FILE, "rb") as f:
         data = pickle.load(f)
     inserts = [(i, pickle.dumps(row), 0, None, 1) for (i, row) in enumerate(data)]
@@ -129,23 +158,41 @@ def calculate_frame(job, ignore_abort=False):
 
     frame_no, xy_data = job
 
-    width, height = 2000, 2000
+    width, height = 1280, 720
     max_iters = 250
     data = np.zeros((width, height), dtype=np.uint8)
 
+    pool_color = (50, 0, 0)
+    colors = [
+        (0, 0, 100),
+        (255, 255, 255),
+        (255, 180, 0),
+        (100, 0, 0),
+        (100, 0, 0),
+    ]
+
     jx, jy = pickle.loads(xy_data)
     for y in range(height):
-        y_point = ((y / height) * 4) - 2
+        y_point = (y - height // 2) / min(height, width) * 2.5
         for x in range(width):
-            x_point = ((x / width) * 4) - 2
+            x_point = (x - width // 2) / min(height, width) * 2.5
 
             in_set, escaped_at, final_dist = mandelbrot_native_helper.calc(x_point, y_point, True, jx, jy, max_iters)
             if in_set == 1:
-                escaped_at = max_iters + 1
-            data[x, y] = escaped_at
+                rgb = pool_color
+            else:
+                log_zn = math.log(final_dist) / 2
+                nu = math.log(log_zn / math.log(2)) / math.log(2)
+                rgb = ((escaped_at + 1 - nu) / max_iters)
+                rgb = max(0, min(1, rgb)) * 4
+                rgb = (
+                    int(colors[int(rgb)][0] * (1 - (rgb - int(rgb))) + colors[int(rgb) + 1][0] * (rgb - int(rgb))),
+                    int(colors[int(rgb)][1] * (1 - (rgb - int(rgb))) + colors[int(rgb) + 1][1] * (rgb - int(rgb))),
+                    int(colors[int(rgb)][2] * (1 - (rgb - int(rgb))) + colors[int(rgb) + 1][2] * (rgb - int(rgb))),
+                )
+            data[x, y] = int((((rgb[0] / 255) * 0.3) + ((rgb[0] / 255) * 0.6) + ((rgb[0] / 255) * 0.1)) * 255)
 
-    data = data.flatten()
-    data = data.tobytes()
+    data = pickle.dumps(data)
     data = lzma.compress(data)
 
     return (frame_no, data)
@@ -381,8 +428,16 @@ def compare_frames(job, db=None):
     def load_frame(val):
         ret = _db.execute("SELECT frame_data FROM frames WHERE frame_no=?;", (val,)).fetchone()[0]
         ret = lzma.decompress(ret)
-        ret = np.frombuffer(ret, np.uint8)
-        return ret.astype(np.int16)
+        ret = pickle.loads(ret)
+        return ret
+        # return ret.astype(np.int16)
+
+    # def compare_frames(a, b):
+    #     return int(np.sum(np.abs(np.subtract(b, a))))
+    def compare_frames(a, b):
+        return (1/ssim(a, b, data_range=256)) * 1_000_000
+        # frame_diff = int(np.sum(np.abs(np.subtract(data_b, data_a))))
+
 
     if isinstance(job, list):
         last_frame_no = None
@@ -393,7 +448,7 @@ def compare_frames(job, db=None):
         for frame_no in job:
             frame = load_frame(frame_no)
             if last_frame is not None:
-                frame_diff = int(np.sum(np.abs(np.subtract(last_frame, frame))))
+                frame_diff = compare_frames(last_frame, frame)
                 ret.append((last_frame_no, frame_no, frame_diff))
             last_frame, last_frame_no = frame, frame_no
         
@@ -404,7 +459,7 @@ def compare_frames(job, db=None):
         data_a = load_frame(a)
         data_b = load_frame(b)
 
-        frame_diff = int(np.sum(np.abs(np.subtract(data_b, data_a))))
+        frame_diff = compare_frames(data_a, data_b)
 
         return a, b, frame_diff
 
@@ -437,7 +492,7 @@ def prepare_initial_diffs(db, test_mode=False):
                         left -= 1 
                         if datetime.utcnow() >= next_msg:
                             perc = (1 - (left / total)) * 100
-                            show_msg(f"Diffs: {a} -> {b} = {diff:10d}, {perc:.2f}%, {left:,} left")
+                            show_msg(f"Diffs: {a} -> {b} = {int(diff):10d}, {perc:.2f}%, {left:,} left")
                             while datetime.utcnow() >= next_msg:
                                 next_msg += timedelta(seconds=60)
                         inserts.append((a, b, diff))
@@ -595,7 +650,7 @@ def smooth_frames(db, test_mode=False):
         if datetime.utcnow() >= next_msg:
             avg = sum(removed) / len(removed)
             perc = (1 - (len(all_frames) - FINAL_FRAME_COUNT) / (starting_frames - FINAL_FRAME_COUNT)) * 100
-            show_msg(f"Removed {len(removed):4d}, {min(removed):7d} -> {int(avg):7d} -> {max(removed):7d}, {len(all_frames):,} left, {perc:.2f}% done")
+            show_msg(f"Removed {len(removed):4d}, {int(min(removed)):7d} -> {int(avg):7d} -> {int(max(removed)):7d}, {len(all_frames):,} left, {perc:.2f}% done")
             removed = []
             while datetime.utcnow() >= next_msg:
                 if datetime.utcnow() >= slow_down:

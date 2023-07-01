@@ -50,7 +50,7 @@ Two million Julia sets would result in something like ten hours of video, which 
 
 While one solution is to simply pick equidistant points along the border, this produces a jittery animation, as points near each other on the Mandelbrot set produce similar Julia set images, but not necessarily always the same amount of similarity.  
 
-Because there are a few different factors at play here, I found it easiest, if not quickest, to render all of the two million frames.  I then used a simple Manhattan distance calculation to see how visually near each frame is to the next frame.  I ran through and removed the frame that was the closest to its neighbor.  Updating my calculations for the new neighbors after each removal, since removing a frame in a sequence might cause the two new neighbors to be closer than any other frame in the image.  I repeat the process till I've whittled down the possible points to my target count.
+Because there are a few different factors at play here, I found it easiest, if not quickest, to produce a quick render of all of the two million frames.  I then used a [structural similarity](https://ieeexplore.ieee.org/document/1284395) calculation to see how visually near each frame is to the next frame.  I ran through and removed the frame that was the closest to its neighbor.  Updating my calculations for the new neighbors after each removal, since removing a frame in a sequence might cause the two new neighbors to be closer than any other frame in the image.  I repeat the process till I've whittled down the possible points to my target count.
 
 From there it's just a matter of producing a high resolution render for the target points, and producing a video file from the images produced.
 

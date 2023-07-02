@@ -1,6 +1,6 @@
 ![Sample Frame](images/sample_frame.png)
 
-In this repo is a series of scripts that can animate the Julia set as found along the edge of the Mandelbrot set.  You can see a [preview of the animation this produces here on YouTube](https://youtu.be/MN7ddsgY-jk).  Before I talk about how this works, a background on what this is in the first place:
+In this repo is a series of scripts that can animate the Julia set as found along the edge of the Mandelbrot set.  You can see a [the animation this produces here on YouTube](https://youtu.be/F1rR5Sl2lcc).  Before I talk about how this works, a background on what this is in the first place:
 
 # Background
 

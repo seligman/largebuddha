@@ -20,6 +20,9 @@ import subprocess
 import time
 import mandelbrot_native_helper
 import pickle
+import sys
+if sys.version_info >= (3, 11): from datetime import UTC
+else: import datetime as datetime_fix; UTC=datetime_fix.timezone.utc
 
 _height = None
 _width = None
@@ -260,7 +263,7 @@ class MandelEngine:
 
 def show_msg(value):
     # Simple helper to show a message with a timestamp
-    print(datetime.utcnow().strftime("%d %H:%M:%S: ") + value)
+    print(datetime.datetime.now(UTC).replace(tzinfo=None).strftime("%d %H:%M:%S: ") + value)
 
 def get_border_perc(x, y):
     # Determine how far along the border we are from a previous run

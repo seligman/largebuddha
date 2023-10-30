@@ -263,7 +263,7 @@ class MandelEngine:
 
 def show_msg(value):
     # Simple helper to show a message with a timestamp
-    print(datetime.datetime.now(UTC).replace(tzinfo=None).strftime("%d %H:%M:%S: ") + value)
+    print(datetime.now(UTC).replace(tzinfo=None).strftime("%d %H:%M:%S: ") + value)
 
 def get_border_perc(x, y):
     # Determine how far along the border we are from a previous run

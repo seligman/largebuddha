@@ -37,7 +37,7 @@ from animated_render_settings import *
 class Saver:
     def __init__(self):
         # Just note the start time for the ticker in the output
-        self.started = datetime.datetime.now(UTC).replace(tzinfo=None)
+        self.started = datetime.now(UTC).replace(tzinfo=None)
         # Keep one work image around through the run of this
         self.im = Image.new('RGB',(SIZE+OFF_X*2,SIZE+OFF_Y*2))
         # PIL helper to let us modify pixels directly
@@ -122,7 +122,7 @@ class Saver:
 
         # Dump out some stats
         print("%9.2f: %-16s %18s [%s, %s]" % (
-            (datetime.datetime.now(UTC).replace(tzinfo=None) - self.started).total_seconds(),
+            (datetime.now(UTC).replace(tzinfo=None) - self.started).total_seconds(),
             fn, 
             str(info), 
             str(vals_a), str(vals_b),

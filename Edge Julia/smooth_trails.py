@@ -97,7 +97,7 @@ def start_enter_worker():
 
 def show_msg(value):
     # Simple helper to show a message with a timestamp
-    print(datetime.datetime.now(UTC).replace(tzinfo=None).strftime("%d %H:%M:%S: ") + value)
+    print(datetime.now(UTC).replace(tzinfo=None).strftime("%d %H:%M:%S: ") + value)
 
 def open_db():
     existing_file = os.path.isfile(DB_FILE)
@@ -230,7 +230,7 @@ def run_server():
             return b''
 
     batch = []
-    next_msg = datetime.datetime.now(UTC).replace(tzinfo=None)
+    next_msg = datetime.now(UTC).replace(tzinfo=None)
     recently_done = {}
 
     def get_hello_page():
@@ -262,7 +262,7 @@ def run_server():
             db.commit()
             batch = []
 
-        if datetime.datetime.now(UTC).replace(tzinfo=None) >= next_msg:
+        if datetime.now(UTC).replace(tzinfo=None) >= next_msg:
             temp = []
             for key in sorted(recently_done):
                 value = recently_done[key]
@@ -270,7 +270,7 @@ def run_server():
             temp = " / ".join(temp)
             recently_done = {}
             show_msg(f"{done_count / total_count * 100:.2f}% done, {temp}")
-            while datetime.datetime.now(UTC).replace(tzinfo=None) >= next_msg:
+            while datetime.now(UTC).replace(tzinfo=None) >= next_msg:
                 next_msg += timedelta(seconds=60)
         return b'OK'
 
@@ -286,7 +286,7 @@ def run_server():
     app.run(debug=False, threaded=False, port=port, host="0.0.0.0")
 
 def safe_urlopen(url, data=None):
-    bail_at = datetime.datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=5)
+    bail_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=5)
     to_sleep = 1
     while True:
         try:
@@ -294,7 +294,7 @@ def safe_urlopen(url, data=None):
             resp = resp.read()
             return resp
         except:
-            if datetime.datetime.now(UTC).replace(tzinfo=None) >= bail_at:
+            if datetime.now(UTC).replace(tzinfo=None) >= bail_at:
                 return None
             to_sleep = min(to_sleep + 5, 30)
             time.sleep(to_sleep)
@@ -364,7 +364,7 @@ def run_client(server="127.0.0.1"):
         proc.start()
         procs.append(proc)
 
-    next_msg = datetime.datetime.now(UTC).replace(tzinfo=None)
+    next_msg = datetime.now(UTC).replace(tzinfo=None)
     batches = []
     while workers > 0:
         msg = queue.get()
@@ -372,10 +372,10 @@ def run_client(server="127.0.0.1"):
             workers -= 1
         else:
             batches.append(msg)
-            if datetime.datetime.now(UTC).replace(tzinfo=None) >= next_msg:
+            if datetime.now(UTC).replace(tzinfo=None) >= next_msg:
                 show_msg(f"Sent off {len(batches):,} {'batch' if len(batches) == 1 else 'batches'}, last at {max(batches):,}...")
                 batches = []
-                while datetime.datetime.now(UTC).replace(tzinfo=None) >= next_msg:
+                while datetime.now(UTC).replace(tzinfo=None) >= next_msg:
                     next_msg += timedelta(seconds=60)
 
     for proc in procs:
@@ -393,15 +393,15 @@ def populate_frames(db):
     workers = psutil.cpu_count(logical=False)
     left = len(todo)
     inserts = []
-    next_msg = datetime.datetime.now(UTC).replace(tzinfo=None)
+    next_msg = datetime.now(UTC).replace(tzinfo=None)
     with multiprocessing.Pool(workers) as pool:
         for job in pool.imap_unordered(calculate_frame, todo):
             if job is not None:
                 frame_no, data = job
                 left -= 1
-                if datetime.datetime.now(UTC).replace(tzinfo=None) >= next_msg:
+                if datetime.now(UTC).replace(tzinfo=None) >= next_msg:
                     show_msg(f"Done with {frame_no:,}, {left:,} left, {frame_no / total_count * 100:.2f}%")
-                    while datetime.datetime.now(UTC).replace(tzinfo=None) >= next_msg:
+                    while datetime.now(UTC).replace(tzinfo=None) >= next_msg:
                         next_msg += timedelta(seconds=15)
                 inserts.append(((data, frame_no)))
                 if len(inserts) >= 5_000:
@@ -484,7 +484,7 @@ def prepare_initial_diffs(db, test_mode=False):
 
     if left > 0:
         show_msg("Find initial diffs for all frames...")
-        next_msg = datetime.datetime.now(UTC).replace(tzinfo=None)
+        next_msg = datetime.now(UTC).replace(tzinfo=None)
         workers = psutil.cpu_count(logical=False)
         inserts = []
         with multiprocessing.Pool(workers) as pool:
@@ -492,10 +492,10 @@ def prepare_initial_diffs(db, test_mode=False):
                 if job is not None:
                     for a, b, diff in job:
                         left -= 1 
-                        if datetime.datetime.now(UTC).replace(tzinfo=None) >= next_msg:
+                        if datetime.now(UTC).replace(tzinfo=None) >= next_msg:
                             perc = (1 - (left / total)) * 100
                             show_msg(f"Diffs: {a} -> {b} = {int(diff):10d}, {perc:.2f}%, {left:,} left")
-                            while datetime.datetime.now(UTC).replace(tzinfo=None) >= next_msg:
+                            while datetime.now(UTC).replace(tzinfo=None) >= next_msg:
                                 next_msg += timedelta(seconds=60)
                         inserts.append((a, b, diff))
                         if len(inserts) >= 25_000:
@@ -609,7 +609,7 @@ def smooth_frames(db, test_mode=False):
             frame.diff = cache.get_diff(db, frame, all_frames[i+1])
     cache.flush_diff(db)
 
-    next_msg = datetime.datetime.now(UTC).replace(tzinfo=None)
+    next_msg = datetime.now(UTC).replace(tzinfo=None)
     slow_down = next_msg + timedelta(minutes=5)
     updates = []
     while len(all_frames) > FINAL_FRAME_COUNT:
@@ -649,13 +649,13 @@ def smooth_frames(db, test_mode=False):
         for i in range(max(1, best-1), min(len(all_frames)-2,best+1)+1):
             all_frames[i].dist = cache.get_dist(db, all_frames[i-1], all_frames[i+1])
 
-        if datetime.datetime.now(UTC).replace(tzinfo=None) >= next_msg:
+        if datetime.now(UTC).replace(tzinfo=None) >= next_msg:
             avg = sum(removed) / len(removed)
             perc = (1 - (len(all_frames) - FINAL_FRAME_COUNT) / (starting_frames - FINAL_FRAME_COUNT)) * 100
             show_msg(f"Removed {len(removed):4d}, {int(min(removed)):7d} -> {int(avg):7d} -> {int(max(removed)):7d}, {len(all_frames):,} left, {perc:.2f}% done")
             removed = []
-            while datetime.datetime.now(UTC).replace(tzinfo=None) >= next_msg:
-                if datetime.datetime.now(UTC).replace(tzinfo=None) >= slow_down:
+            while datetime.now(UTC).replace(tzinfo=None) >= next_msg:
+                if datetime.now(UTC).replace(tzinfo=None) >= slow_down:
                     next_msg += timedelta(seconds=60)
                 else:
                     next_msg += timedelta(seconds=15)
@@ -693,9 +693,9 @@ def test():
 
     db, _ = open_db()
     show_msg("Running mini-test mode of prepare_initial_diffs")
-    started = datetime.datetime.now(UTC).replace(tzinfo=None)
+    started = datetime.now(UTC).replace(tzinfo=None)
     prepare_initial_diffs(db, True)
-    ended = datetime.datetime.now(UTC).replace(tzinfo=None)
+    ended = datetime.now(UTC).replace(tzinfo=None)
     show_msg(f"That took {int((ended - started).total_seconds()):,} seconds")
 
 def write_final(db):

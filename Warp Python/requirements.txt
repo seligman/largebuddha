@@ -1,0 +1,3 @@
+warp-lang
+pillow
+pywin32
